@@ -1,0 +1,499 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
+
+"""
+torchrun --nproc_per_node=2 main.py \
+    --local_rank 0 \
+    --encoder vit --encoder_depth 12 --encoder_channels 384 --use_tanh True \
+    --loss_margin 100 --scaling_w 0.5 \
+    --batch_size 16 --eval_freq 10 \
+    --attenuation jnd \
+    --epochs 100 --optimizer 'AdamW,lr=1e-4'
+    
+Args Inventory:
+    --dist False \
+    --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
+    --batch_size 128 --batch_size_eval 128 --workers 8 \
+    --attenuation jnd \
+    --num_bits 64 --redundancy 16 \
+    --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
+    --encoder vit --encoder_depth 12 --encoder_channels 384 --use_tanh True \
+    --loss_margin 100   --attenuation jnd --batch_size 16 --eval_freq 10 --local_rank 0 \
+    --p_crop 0 --p_rot 0 --p_color_jitter 0 --p_blur 0 --p_jpeg 0 --p_resize 0 \
+
+"""
+
+import argparse
+import datetime
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torchvision import transforms as tv_transforms
+from torchvision.utils import save_image
+
+# add hidden path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from hidden import augmentation, models, transforms, utils
+from hidden.loss import *
+from hidden.models import attenuations
+from hidden.ops import attacks, metrics
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    def aa(*args, **kwargs):
+        group.add_argument(*args, **kwargs)
+
+    group = parser.add_argument_group('Experiments parameters')
+    aa('--dataset', type=str, default=None)
+    aa('--data_dir', type=str, default='data')
+    aa('--train_dir', type=str, default='data/coco/train')
+    aa('--val_dir', type=str, default='data/coco/val')
+    aa('--output_dir', type=str, default='outputs', help='Output directory for logs and images (Default: outputs)')
+    aa('--data_mean', type=utils.tuple_inst(float), default=None)
+    aa('--data_std', type=utils.tuple_inst(float), default=None)
+
+    group = parser.add_argument_group('Marking parameters')
+    aa('--num_bits', type=int, default=32, help='Number of bits of the watermark (Default: 32)')
+    aa('--redundancy', type=int, default=1, help='Redundancy of the watermark (Default: 1)')
+    aa('--img_size', type=int, default=28, help='Image size')
+    aa('--img_channels', type=int, default=None, help='Number of image channels.')
+
+    group = parser.add_argument_group('Encoder parameters')
+    aa('--encoder', type=str, default='hidden', help='Encoder type (Default: hidden)')
+    aa('--encoder_depth', default=4, type=int, help='Number of blocks in the encoder.')
+    aa('--encoder_channels', default=64, type=int, help='Number of channels in the encoder.')
+    aa('--use_tanh', type=utils.bool_inst, default=True, help='Use tanh scaling. (Default: True)')
+
+    group = parser.add_argument_group('Decoder parameters')
+    aa('--decoder', type=str, default='hidden', help='Decoder type (Default: hidden)')
+    aa('--decoder_depth', type=int, default=8, help='Number of blocks in the decoder (Default: 4)')
+    aa('--decoder_channels', type=int, default=64, help='Number of blocks in the decoder (Default: 4)')
+
+    group = parser.add_argument_group('Training parameters')
+    aa('--bn_momentum', type=float, default=0.01, help='Momentum of the batch normalization layer. (Default: 0.1)')
+    aa('--eval_freq', default=1, type=int)
+    aa('--saveckp_freq', default=100, type=int)
+    aa('--saveimg_freq', default=10, type=int)
+    aa('--resume_from', default=None, type=str, help='Checkpoint path to resume from.')
+    aa('--scaling_w', type=float, default=1.0, help='Scaling of the watermark signal. (Default: 1.0)')
+    aa('--scaling_i', type=float, default=1.0, help='Scaling of the original image. (Default: 1.0)')
+
+    group = parser.add_argument_group('Optimization parameters')
+    aa('--epochs', type=int, default=100, help='Number of epochs for optimization. (Default: 100)')
+    aa('--optimizer', type=str, default='Adam', help='Optimizer to use. (Default: Adam)')
+    aa('--scheduler', type=str, default=None, help='Scheduler to use. (Default: None)')
+    aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss. (Default: 1.0)')
+    aa('--lambda_i', type=float, default=0.0, help='Weight of the image loss. (Default: 0.0)')
+    aa('--loss_margin', type=float, default=1,
+       help='Margin of the Hinge loss or temperature of the sigmoid of the BCE loss. (Default: 1.0)')
+    aa('--loss_w_type', type=str, default='bce',
+       help='Loss type. "bce" for binary cross entropy, "cossim" for cosine similarity (Default: bce)')
+    aa('--loss_i_type', type=str, default='mse',
+       help='Loss type. "mse" for mean squared error, "l1" for l1 loss (Default: mse)')
+
+    group = parser.add_argument_group('Loader parameters')
+    aa('--batch_size', type=int, default=16, help='Batch size. (Default: 16)')
+    aa('--batch_size_eval', type=int, default=64, help='Batch size. (Default: 128)')
+    aa('--workers', type=int, default=8, help='Number of workers for data loading. (Default: 8)')
+
+    group = parser.add_argument_group('Attenuation parameters')
+    aa('--attenuation', type=str, default=None, help='Attenuation type. (Default: None)')
+    aa('--scale_channels', type=utils.bool_inst, default=False, help='Use channel scaling. (Default: False)')
+
+    group = parser.add_argument_group('DA parameters')
+    aa('--data_augmentation', type=str, default='combined',
+       help='Type of data augmentation to use at marking time. (Default: combined)')
+    aa('--p_crop', type=float, default=0.5, help='Probability of the crop augmentation. (Default: 0.5)')
+    aa('--p_resize', type=float, default=0.5, help='Probability of the resize augmentation. (Default: 0.5)')
+    aa('--p_blur', type=float, default=0.5, help='Probability of the blur augmentation. (Default: 0.5)')
+    aa('--p_jpeg', type=float, default=0.5, help='Probability of the diff JPEG augmentation. (Default: 0.5)')
+    aa('--p_rot', type=float, default=0.5, help='Probability of the rotation augmentation. (Default: 0.5)')
+    aa('--p_color_jitter', type=float, default=0.5, help='Probability of the color jitter augmentation. (Default: 0.5)')
+
+    group = parser.add_argument_group('Distributed training parameters')
+    aa('--debug_slurm', action='store_true')
+    aa('--local_rank', default=-1, type=int)
+    aa('--master_port', default=-1, type=int)
+    aa('--dist', type=utils.bool_inst, default=False, help='Enabling distributed training')
+
+    group = parser.add_argument_group('Misc')
+    aa('--seed', default=0, type=int, help='Random seed')
+
+    params = parser.parse_args()
+
+    # handle params that are 'none'
+    if params.attenuation is not None:
+        if params.attenuation.lower() == 'none':
+            params.attenuation = None
+    if params.scheduler is not None:
+        if params.scheduler.lower() == 'none':
+            params.scheduler = None
+    if (params.data_mean is None) ^ (params.data_std is None):
+        raise ValueError('Data mean and std are both required.')
+
+    return params
+
+
+def main():
+    params = parse_args()
+
+    # Distributed mode
+    if params.dist:
+        utils.init_distributed_mode(params)
+        # cudnn.benchmark = False
+        # cudnn.deterministic = True
+
+    # Set seeds for reproducibility
+    seed = params.seed + utils.get_rank()
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
+    # Print the arguments
+    print('__git__:{}'.format(utils.get_sha()))
+    print('__log__:{}'.format(json.dumps(vars(params))))
+
+    params.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+    # Misc
+    normalize_transform = transforms.Normalize(dataset=params.dataset, mean=params.data_mean, std=params.data_std)
+    params.data_mean = normalize_transform.mean
+    params.data_std = normalize_transform.std
+    params.normalize = attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
+    params.denormalize = attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
+
+    # Data loaders
+    train_transform = tv_transforms.Compose([
+        tv_transforms.RandomResizedCrop(params.img_size),
+        tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        tv_transforms.RandomHorizontalFlip(),
+        tv_transforms.ToTensor(),
+        normalize_transform,
+    ])
+    val_transform = tv_transforms.Compose([
+        tv_transforms.Resize(params.img_size),
+        tv_transforms.CenterCrop(params.img_size),
+        tv_transforms.ToTensor(),
+        normalize_transform,
+    ])
+    if params.dataset is not None:
+        train_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=True,
+                                            transform=train_transform, batch_size=params.batch_size,
+                                            num_workers=params.workers, shuffle=True)
+        val_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=False,
+                                          transform=val_transform, batch_size=params.batch_size_eval,
+                                          num_workers=params.workers, shuffle=False)
+    else:
+        train_loader = utils.get_dataloader(params.train_dir, transform=train_transform, batch_size=params.batch_size,
+                                            num_workers=params.workers, shuffle=True)
+        val_loader = utils.get_dataloader(params.val_dir, transform=val_transform, batch_size=params.batch_size_eval,
+                                          num_workers=params.workers, shuffle=False)
+
+    # Input shape
+    if params.img_channels is None:
+        if params.dataset is not None:
+            _shape_infer_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=False,
+                                                       transform=tv_transforms.ToTensor(), batch_size=1,
+                                                       num_workers=1, shuffle=False)
+        else:
+            _shape_infer_loader = utils.get_dataloader(params.train_dir, transform=tv_transforms.ToTensor(),
+                                                       batch_size=1, num_workers=1, shuffle=False)
+        params.img_channels = _shape_infer_loader.dataset[0][0].size(-3)
+        del _shape_infer_loader
+
+    # Build encoder
+    print('building encoder...')
+    if params.encoder == 'hidden':
+        encoder = models.HiddenEncoder(num_blocks=params.encoder_depth, num_bits=params.num_bits,
+                                       channels=params.encoder_channels, in_channels=params.img_channels,
+                                       last_tanh=params.use_tanh)
+    elif params.encoder == 'dvmark':
+        encoder = models.DvmarkEncoder(num_blocks=params.encoder_depth, num_bits=params.num_bits,
+                                       channels=params.encoder_channels, in_channels=params.img_channels,
+                                       last_tanh=params.use_tanh)
+    elif params.encoder == 'vit':
+        encoder = models.VitEncoder(
+            img_size=params.img_size, patch_size=16, init_values=None,
+            embed_dim=params.encoder_channels, depth=params.encoder_depth,
+            num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
+    else:
+        raise ValueError('Unknown encoder type')
+    print('\nencoder: \n', encoder)
+    print('total parameters:', sum(p.numel() for p in encoder.parameters()))
+
+    # Build decoder
+    print('building decoder...')
+    if params.decoder == 'hidden':
+        decoder = models.HiddenDecoder(num_blocks=params.decoder_depth,
+                                       num_bits=params.num_bits * params.redundancy,
+                                       channels=params.decoder_channels,
+                                       in_channels=params.img_channels)
+    else:
+        raise ValueError('Unknown decoder type')
+    print('\ndecoder: \n', decoder)
+    print('total parameters:', sum(p.numel() for p in decoder.parameters()))
+
+    # Adapt bn momentum
+    for module in [*decoder.modules(), *encoder.modules()]:
+        if type(module) == torch.nn.BatchNorm2d:
+            module.momentum = params.bn_momentum if params.bn_momentum != -1 else None
+
+    # Construct attenuation
+    if params.attenuation == 'jnd':
+        attenuation = attenuations.JND(preprocess=transforms.Denormalize(dataset=params.dataset)).to(params.device)
+    else:
+        attenuation = None
+
+    # Construct data augmentation seen at train time
+    if params.data_augmentation == 'combined':
+        data_aug = augmentation.HiddenAug(params.img_size, params.p_crop, params.p_blur, params.p_jpeg,
+                                          params.p_rot, params.p_color_jitter, params.p_resize).to(params.device)
+    elif params.data_augmentation == 'kornia':
+        data_aug = augmentation.KorniaAug().to(params.device)
+    elif params.data_augmentation == 'none':
+        data_aug = nn.Identity().to(params.device)
+    else:
+        raise ValueError('Unknown data augmentation type')
+    print('data augmentation:', data_aug)
+
+    # Create encoder/decoder
+    encoder_decoder = models.EncoderDecoder(encoder=encoder,
+                                            attenuation=attenuation,
+                                            augmentation=data_aug,
+                                            decoder=decoder,
+                                            scale_channels=params.scale_channels,
+                                            scaling_i=params.scaling_i,
+                                            scaling_w=params.scaling_w,
+                                            num_bits=params.num_bits,
+                                            redundancy=params.redundancy,
+                                            std=normalize_transform.std)
+    encoder_decoder = encoder_decoder.to(params.device)
+
+    # Distributed training
+    if params.dist:
+        encoder_decoder = nn.SyncBatchNorm.convert_sync_batchnorm(encoder_decoder)
+        encoder_decoder = nn.parallel.DistributedDataParallel(encoder_decoder, device_ids=[params.local_rank])
+
+    # Build optimizer and scheduler
+    optim_params = utils.parse_initializer_params(params.optimizer)
+    lr_mult = params.batch_size * utils.get_world_size() / 512.0
+    optim_params['lr'] = lr_mult * optim_params['lr'] if 'lr' in optim_params else lr_mult * 1e-3
+    to_optim = [*encoder.parameters(), *decoder.parameters()]
+    optimizer = utils.build_optimizer(model_params=to_optim, **optim_params)
+    scheduler = utils.build_lr_scheduler(optimizer=optimizer, **utils.parse_initializer_params(
+        params.scheduler)) if params.scheduler is not None else None
+    print('optimizer:', optimizer)
+    print('scheduler:', scheduler)
+
+    # optionally resume training 
+    if params.resume_from is not None:
+        utils.restart_from_checkpoint(
+            params.resume_from,
+            encoder_decoder=encoder_decoder
+        )
+    to_restore = {'epoch': 0}
+    utils.restart_from_checkpoint(
+        os.path.join(params.output_dir, 'checkpoint.pth'),
+        run_variables=to_restore,
+        encoder_decoder=encoder_decoder,
+        optimizer=optimizer
+    )
+    start_epoch = to_restore['epoch']
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = optim_params['lr']
+
+    # create output dir
+    os.makedirs(params.output_dir, exist_ok=True)
+
+    print('training...')
+    start_time = time.time()
+    best_bit_acc = 0
+    for epoch in range(start_epoch, params.epochs):
+
+        if params.dist:
+            train_loader.sampler.set_epoch(epoch)
+            val_loader.sampler.set_epoch(epoch)
+
+        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, scheduler, epoch, params)
+        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()}, 'epoch': epoch}
+
+        if epoch % params.eval_freq == 0:
+            val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, params)
+            log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
+
+        save_dict = {
+            'encoder_decoder': encoder_decoder.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'epoch': epoch + 1,
+            'params': params,
+        }
+        utils.save_on_master(save_dict, os.path.join(params.output_dir, 'checkpoint.pth'))
+        if params.saveckp_freq and epoch % params.saveckp_freq == 0:
+            utils.save_on_master(save_dict, os.path.join(params.output_dir, f'checkpoint{epoch:03}.pth'))
+        if utils.is_main_process():
+            with (Path(params.output_dir) / 'log.txt').open('a') as f:
+                f.write(json.dumps(log_stats) + '\n')
+
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    print('Training time {}'.format(total_time_str))
+
+
+# noinspection DuplicatedCode
+def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, scheduler, epoch, params):
+    r"""
+    One epoch of training.
+    """
+    if params.scheduler is not None:
+        scheduler.step(epoch)
+    encoder_decoder.train()
+    header = 'Train - Epoch: [{}/{}]'.format(epoch, params.epochs)
+    metric_logger = utils.MetricLogger(delimiter='  ')
+
+    for it, (imgs, _) in enumerate(metric_logger.log_every(loader, 10, header)):
+        imgs = imgs.to(params.device, non_blocking=True)  # b c h w
+
+        msgs_ori = torch.rand((imgs.shape[0], params.num_bits)) > 0.5  # b k
+        msgs = 2 * msgs_ori.type(torch.float).to(params.device) - 1  # b k
+
+        fts, (imgs_w, imgs_aug) = encoder_decoder(imgs, msgs)
+
+        loss_w = message_loss(fts, msgs, m=params.loss_margin, loss_type=params.loss_w_type)  # b k -> 1
+        loss_i = image_loss(imgs_w, imgs, loss_type=params.loss_i_type)  # b c h w -> 1
+
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i
+
+        # gradient step
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # img stats
+        psnrs = metrics.psnr(imgs_w, imgs)  # b 1
+        # msg stats
+        ori_msgs = torch.sign(msgs) > 0
+        decoded_msgs = torch.sign(fts) > 0  # b k -> b k
+        diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
+        bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
+        word_accs = (bit_accs == 1)  # b
+        norm = torch.norm(fts, dim=-1, keepdim=True)  # b d -> b 1
+        log_stats = {
+            'loss_w': loss_w.item(),
+            'loss_i': loss_i.item(),
+            'loss': loss.item(),
+            'psnr_avg': torch.mean(psnrs).item(),
+            'lr': optimizer.param_groups[0]['lr'],
+            'bit_acc_avg': torch.mean(bit_accs).item(),
+            'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
+            'norm_avg': torch.mean(norm).item(),
+        }
+
+        torch.cuda.synchronize()
+        for name, loss in log_stats.items():
+            metric_logger.update(**{name: loss})
+
+        # if epoch % 1 == 0 and it % 10 == 0 and utils.is_main_process():
+        if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
+            save_image(params.denormalize(imgs),
+                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_ori.png'), nrow=8)
+            save_image(params.denormalize(imgs_w),
+                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_w.png'), nrow=8)
+            save_image(params.denormalize(imgs_aug),
+                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_aug.png'), nrow=8)
+
+    metric_logger.synchronize_between_processes()
+    print('Averaged {} stats:'.format('train'), metric_logger)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+
+# noinspection DuplicatedCode
+@torch.no_grad()
+def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, params):
+    r"""
+    One epoch of eval.
+    """
+    encoder_decoder.eval()
+    header = 'Eval - Epoch: [{}/{}]'.format(epoch, params.epochs)
+    metric_logger = utils.MetricLogger(delimiter='  ')
+    for it, (imgs, _) in enumerate(metric_logger.log_every(loader, 10, header)):
+        imgs = imgs.to(params.device, non_blocking=True)  # b c h w
+
+        msgs_ori = torch.rand((imgs.shape[0], params.num_bits)) > 0.5  # b k
+        msgs = 2 * msgs_ori.type(torch.float).to(params.device) - 1  # b k
+
+        fts, (imgs_w, imgs_aug) = encoder_decoder(imgs, msgs, eval_mode=True)
+
+        loss_w = message_loss(fts, msgs, m=params.loss_margin, loss_type=params.loss_w_type)  # b -> 1
+        loss_i = image_loss(imgs_w, imgs, loss_type=params.loss_i_type)  # b c h w -> 1
+
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i
+
+        # img stats
+        psnrs = metrics.psnr(imgs_w, imgs)  # b 1
+        # msg stats
+        ori_msgs = torch.sign(msgs) > 0
+        decoded_msgs = torch.sign(fts) > 0  # b k -> b k
+        diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
+        bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
+        word_accs = (bit_accs == 1)  # b
+        norm = torch.norm(fts, dim=-1, keepdim=True)  # b d -> b 1
+        log_stats = {
+            'loss_w': loss_w.item(),
+            'loss_i': loss_i.item(),
+            'loss': loss.item(),
+            'psnr_avg': torch.mean(psnrs).item(),
+            'bit_acc_avg': torch.mean(bit_accs).item(),
+            'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
+            'norm_avg': torch.mean(norm).item(),
+        }
+
+        eval_attacks = {
+            'none': nn.Identity(),
+            'crop_01': attacks.CenterCrop(0.1),
+            'crop_05': attacks.CenterCrop(0.5),
+            # 'resize_03': attacks.Resize(0.3),
+            'resize_05': attacks.Resize(0.5),
+            'rot_25': attacks.Rotate(25),
+            'rot_90': attacks.Rotate(90),
+            'blur': attacks.GaussianBlur(kernel_size=5, sigma=2.0,
+                                         mean=params.data_mean, std=params.data_std).to(params.device),
+            # 'brightness_2': attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
+            'jpeg_50': attacks.JPEGCompress(50,
+                                            mean=params.data_mean, std=params.data_std).to(params.device),
+        }
+        for name, attack in eval_attacks.items():
+            fts, (_) = encoder_decoder(imgs, msgs, eval_mode=True, eval_aug=attack)
+            decoded_msgs = torch.sign(fts) > 0  # b k -> b k
+            diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
+            log_stats[f'bit_acc_{name}'] = diff.float().mean().item()
+
+        torch.cuda.synchronize()
+        for name, loss in log_stats.items():
+            metric_logger.update(**{name: loss})
+
+        if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
+            save_image(params.denormalize(imgs),
+                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_val_ori.png'), nrow=8)
+            save_image(params.denormalize(imgs_w),
+                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_val_w.png'), nrow=8)
+
+    metric_logger.synchronize_between_processes()
+    print('Averaged {} stats:'.format('eval'), metric_logger)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+
+if __name__ == '__main__':
+    main()
