@@ -65,8 +65,9 @@ class DenormalizeYUV(tv_transforms.Normalize):
         super(DenormalizeYUV, self).__init__(mean, std, inplace)
 
 
-def get_default_transforms():
+def get_default_transforms(dataset: str = 'imagenet'):
+    mean, std = get_dataset_stats(dataset)
     return tv_transforms.Compose([
         tv_transforms.ToTensor(),
-        tv_transforms.Normalize(_DATASETS_STATS['imagenet'].mean, _DATASETS_STATS['imagenet'].std),
+        tv_transforms.Normalize(mean, std),
     ])

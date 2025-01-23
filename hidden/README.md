@@ -1,4 +1,5 @@
-# Image Watermarking with Revisited HiDDeN
+Revisited HiDDeN
+------
 
 This code is inherited from
 [HiDDeN implemented in Stable Signature repository](https://github.com/facebookresearch/stable_signature/tree/main/hidden),
@@ -190,7 +191,7 @@ The following command resembles the one that reproduces the results in the origi
 ```cmd
 python main.py \
   --dataset MNIST --eval_freq 5 \
-  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 100 \
+  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 \
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
   --optimizer Lamb,lr=2e-2 \
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
@@ -201,7 +202,7 @@ python main.py \
 ```cmd
 python main.py `
   --dataset MNIST --eval_freq 5 `
-  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 100 `
+  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 `
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
   --optimizer Lamb,lr=2e-2 `
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
@@ -209,5 +210,5 @@ python main.py `
   --loss_w_type bce --loss_margin 1
 ```
 
-To enable distributed training, use `torchrun --nproc_per_node=[procs] main.py` instead of `python main.py` and
-define `--dist`.
+To enable distributed training _(not available on Windows)_, use `torchrun --nproc_per_node=[procs] main.py`
+instead of `python main.py` and define `--dist`.

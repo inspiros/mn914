@@ -17,7 +17,7 @@ __all__ = ['EncoderDecoder', 'EncoderWithJND']
 class EncoderDecoder(nn.Module):
     def __init__(self,
                  encoder: nn.Module,
-                 attenuation: attenuations.JND,
+                 attenuation: Optional[attenuations.JND],
                  attack_layer: nn.Module,
                  decoder: nn.Module,
                  scale_channels: bool,
@@ -79,11 +79,11 @@ class EncoderDecoder(nn.Module):
         # attack simulation
         if eval_attack is not None:
             x_r = eval_attack(x_w, x0)
-            m_hat = self.decoder(x_r)  # b c h w -> b d
         else:
             x_r = self.attack_layer(x_w, x0)
-            m_hat = self.decoder(x_r)  # b c h w -> b d
 
+        # decode
+        m_hat = self.decoder(x_r)  # b c h w -> b d
         m_hat = m_hat.view(-1, self.num_bits, self.redundancy)  # b k*r -> b k r
         m_hat = torch.sum(m_hat, dim=-1)  # b k r -> b k
 
@@ -93,7 +93,7 @@ class EncoderDecoder(nn.Module):
 class EncoderWithJND(nn.Module):
     def __init__(self,
                  encoder: nn.Module,
-                 attenuation: attenuations.JND,
+                 attenuation: Optional[attenuations.JND],
                  scale_channels: bool,
                  scaling_i: float,
                  scaling_w: float):

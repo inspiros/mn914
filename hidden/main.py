@@ -184,7 +184,7 @@ def main():
     train_transform = tv_transforms.Compose([
         tv_transforms.RandomResizedCrop(params.img_size),
         tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        tv_transforms.RandomHorizontalFlip(),
+        tv_transforms.RandomHorizontalFlip(p=0.1),
         tv_transforms.ToTensor(),
         normalize_transform,
     ])
@@ -352,7 +352,7 @@ def main():
         train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, scheduler, epoch, params)
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()}, 'epoch': epoch}
 
-        if epoch % params.eval_freq == 0:
+        if (epoch + 1) % params.eval_freq == 0:
             val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, eval_attacks, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
 
@@ -363,15 +363,14 @@ def main():
             'params': params,
         }
         utils.save_on_master(save_dict, os.path.join(params.output_dir, 'checkpoint.pth'))
-        if params.saveckp_freq and epoch % params.saveckp_freq == 0:
-            utils.save_on_master(save_dict, os.path.join(params.output_dir, f'checkpoint{epoch:03}.pth'))
+        if params.saveckp_freq and (epoch + 1) % params.saveckp_freq == 0:
+            utils.save_on_master(save_dict, os.path.join(params.output_dir, f'checkpoint{epoch:03d}.pth'))
         if utils.is_main_process():
             with (Path(params.output_dir) / 'log.txt').open('a') as f:
                 f.write(json.dumps(log_stats) + '\n')
 
     total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str))
+    print(f'Training time {datetime.timedelta(seconds=int(total_time))}')
 
 
 # noinspection DuplicatedCode
@@ -382,7 +381,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
     if params.scheduler is not None:
         scheduler.step(epoch)
     encoder_decoder.train()
-    header = 'Train - Epoch: [{}/{}]'.format(epoch, params.epochs)
+    header = f'Train - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger(delimiter='  ')
 
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
@@ -426,17 +425,16 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        # if epoch % 1 == 0 and it % 10 == 0 and utils.is_main_process():
-        if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
+        if (epoch + 1) % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
-                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_ori.png'), nrow=8)
+                       os.path.join(params.output_dir, f'{epoch:03d}_train_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
-                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_w.png'), nrow=8)
+                       os.path.join(params.output_dir, f'{epoch:03d}_train_xw.png'), nrow=8)
             save_image(params.denormalize(x_r),
-                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_aug.png'), nrow=8)
+                       os.path.join(params.output_dir, f'{epoch:03d}_train_xr.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
-    print('Averaged {} stats:'.format('train'), metric_logger)
+    print('Averaged train stats:', metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -447,7 +445,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
     One epoch of eval.
     """
     encoder_decoder.eval()
-    header = 'Eval - Epoch: [{}/{}]'.format(epoch, params.epochs)
+    header = f'Eval - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger(delimiter='  ')
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
@@ -490,14 +488,14 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
+        if (epoch + 1) % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
-                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_val_ori.png'), nrow=8)
+                       os.path.join(params.output_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
-                       os.path.join(params.output_dir, f'{epoch:03}_{it:03}_val_w.png'), nrow=8)
+                       os.path.join(params.output_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
-    print('Averaged {} stats:'.format('eval'), metric_logger)
+    print('Averaged eval stats:', metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
