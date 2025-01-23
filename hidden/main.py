@@ -50,7 +50,7 @@ from hidden.models import attenuations, attack_layers
 from hidden.ops import attacks, metrics
 
 
-def parse_args():
+def parse_args(verbose: bool = True) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     def aa(*args, **kwargs):
@@ -145,6 +145,11 @@ def parse_args():
     if (params.data_mean is None) ^ (params.data_std is None):
         raise ValueError('Data mean and std are both required.')
 
+    # Print the arguments
+    if verbose:
+        print('__git__:{}'.format(utils.get_sha()))
+        print('__log__:{}'.format(json.dumps(vars(params))))
+
     if params.dist:
         params.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     else:
@@ -167,10 +172,6 @@ def main():
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
-
-    # Print the arguments
-    print('__git__:{}'.format(utils.get_sha()))
-    print('__log__:{}'.format(json.dumps(vars(params))))
 
     # Misc
     normalize_transform = transforms.Normalize(dataset=params.dataset, mean=params.data_mean, std=params.data_std)
