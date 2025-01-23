@@ -29,14 +29,13 @@ hidden/
 │   requirements.txt
 └───ckpt/                <== (optional) Final checkpoints
 └───data/                <== (optional) Dataset
-└───models/              <== All watermark encoder/decoder architectures
+└───models/              <== Contains encoders, decoders, attack_layers, attenuations
 └───notebooks/           <== Demo notebooks
 └───ops/                 <== Image operators (attacks & metrics)
 │   └───attacks/
 │   └───metrics/
 │   └───utils.py
 └───outputs/             <== (optional) All outputs (checkpoints and logs)
-│   augmentation.py
 │   loss.py
 │   main.py              <-- Entry point for training
 │   transforms.py
@@ -178,7 +177,7 @@ This can also be added at test time only, at the cost of some accuracy.
 - `--debug_slurm`: Enable debugging for SLURM.
 - `--local_rank`: Local rank for distributed training. Default: -1
 - `--master_port`: Port for the master process. Default: -1
-- `--dist`: Enable distributed training. Default: True
+- `--dist`: Enable distributed training. Default: False
 
 </details>
 
@@ -190,7 +189,7 @@ The following command resembles the one that reproduces the results in the origi
 ```cmd
 torchrun --nproc_per_node=2 main.py \
   --dataset mnist --eval_freq 5 \
-  --img_size 28 --img_channels 1 --num_bits 32 --batch_size 16 --epochs 100 \
+  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 100 \
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
   --optimizer Lamb,lr=2e-2 \
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
@@ -202,7 +201,7 @@ torchrun --nproc_per_node=2 main.py \
 ```cmd
 python main.py `
   --dataset MNIST --eval_freq 5 `
-  --img_size 28 --img_channels 1 --num_bits 32 --batch_size 16 --epochs 100 `
+  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 100 `
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
   --optimizer Lamb,lr=2e-2 `
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `

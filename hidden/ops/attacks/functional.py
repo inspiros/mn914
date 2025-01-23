@@ -1,13 +1,15 @@
 import math
-from typing import Optional
+from typing import Optional, Union
 
 import torch
-from torchvision.transforms import functional
+from torchvision.transforms import functional as F_tv
+from torchvision.transforms.functional import InterpolationMode
 
 from .utils import _get_dataset_stats_tensors_from_shape
 from ..utils import encoding_quality
 
 __all__ = [
+    'InterpolationMode',
     'normalize_img',
     'denormalize_img',
     'round_pixel',
@@ -18,9 +20,12 @@ __all__ = [
     'rotate',
     'adjust_brightness',
     'adjust_contrast',
-    'jpeg_compress',
     'gaussian_blur',
-    'differentiable_jpeg_compress',
+    'jpeg_compress',
+    'diff_jpeg_compress',
+    'watermark_dropout',
+    'watermark_cropout',
+    'watermark_center_cropout',
 ]
 
 
@@ -104,6 +109,21 @@ def project_linf(x: torch.Tensor, y: torch.Tensor, radius: float,
     return y + delta
 
 
+def crop(x: torch.Tensor,
+         top: Union[float, int], left: Union[float, int],
+         height: Union[float, int], width: Union[float, int]) -> torch.Tensor:
+    r"""
+    Crop image tensor.
+    """
+    if isinstance(top, float) or isinstance(left, float) or isinstance(height, float) or isinstance(width, float):
+        h0, w0 = x.shape[-2:]
+        top = int(top * h0)
+        left = int(left * w0)
+        height = int(height * h0)
+        width = int(width * w0)
+    return F_tv.crop(x, top, left, height, width)
+
+
 def center_crop(x: torch.Tensor, scale: float) -> torch.Tensor:
     r""" Perform center crop such that the target area of the crop is at a given scale
 
@@ -112,28 +132,22 @@ def center_crop(x: torch.Tensor, scale: float) -> torch.Tensor:
         scale: target area scale
     """
     scale = math.sqrt(scale)
-    new_edges_size = [int(s * scale) for s in x.shape[-2:]][::-1]
-
-    # left = int(x.size[0]/2-new_edges_size[0]/2)
-    # upper = int(x.size[1]/2-new_edges_size[1]/2)
-    # right = left + new_edges_size[0]
-    # lower = upper + new_edges_size[1]
-
-    # return x.crop((left, upper, right, lower))
-    x = functional.center_crop(x, new_edges_size)
-    return x
+    output_size = [int(s * scale) for s in x.shape[-2:]][::-1]
+    return F_tv.center_crop(x, output_size)
 
 
-def resize(x: torch.Tensor, scale: float) -> torch.Tensor:
+def resize(x: torch.Tensor, scale: float,
+           interpolation: InterpolationMode = InterpolationMode.BILINEAR) -> torch.Tensor:
     r""" Perform center crop such that the target area of the crop is at a given scale
 
     Args:
         x: Image tensor
         scale: target area scale
+        interpolation: Interpolation mode
     """
     scale = math.sqrt(scale)
     new_edges_size = [int(s * scale) for s in x.shape[-2:]][::-1]
-    return functional.resize(x, new_edges_size)
+    return F_tv.resize(x, new_edges_size, interpolation=interpolation)
 
 
 def rotate(x: torch.Tensor, angle: float) -> torch.Tensor:
@@ -143,7 +157,7 @@ def rotate(x: torch.Tensor, angle: float) -> torch.Tensor:
         x: Image tensor
         angle: angle in degrees
     """
-    return functional.rotate(x, angle)
+    return F_tv.rotate(x, angle)
 
 
 def adjust_brightness(x: torch.Tensor,
@@ -159,7 +173,7 @@ def adjust_brightness(x: torch.Tensor,
         std: Dataset std
     """
     x_pixel = denormalize_img(x, mean=mean, std=std)
-    y_pixel = functional.adjust_brightness(x_pixel, brightness_factor)
+    y_pixel = F_tv.adjust_brightness(x_pixel, brightness_factor)
     return normalize_img(y_pixel, mean=mean, std=std)
 
 
@@ -176,7 +190,24 @@ def adjust_contrast(x: torch.Tensor,
         std: Dataset std
     """
     x_pixel = denormalize_img(x, mean=mean, std=std)
-    y_pixel = functional.adjust_contrast(x_pixel, contrast_factor)
+    y_pixel = F_tv.adjust_contrast(x_pixel, contrast_factor)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def gaussian_blur(x: torch.Tensor, kernel_size: int, sigma: float = 1.,
+                  mean: Optional[torch.Tensor] = None,
+                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
+    r""" Add gaussian blur to image
+
+    Args:
+        x: Tensor image
+        kernel_size: Gaussian kernel size
+        sigma: sigma of Gaussian kernel
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.gaussian_blur(x_pixel, kernel_size=kernel_size, sigma=sigma)
     return normalize_img(y_pixel, mean=mean, std=std)
 
 
@@ -203,37 +234,64 @@ def jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = No
     y = torch.empty_like(x)
     for i in range(x.size(0)):
         img = x[i]
-        pil_img = functional.to_pil_image(img, mode=mode)
-        y[i] = functional.to_tensor(encoding_quality(pil_img, quality=quality_factor))
+        pil_img = F_tv.to_pil_image(img, mode=mode)
+        y[i] = F_tv.to_tensor(encoding_quality(pil_img, quality=quality_factor))
     return normalize_img(y, mean=mean, std=std)
 
 
-def gaussian_blur(x: torch.Tensor, kernel_size: int, sigma: float = 1.,
-                  mean: Optional[torch.Tensor] = None,
-                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
-    r""" Add gaussian blur to image
-
-    Args:
-        x: Tensor image
-        kernel_size: Gaussian kernel size
-        sigma: sigma of Gaussian kernel
-        mean: Dataset mean
-        std: Dataset std
+def diff_jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = None,
+                       mean: Optional[torch.Tensor] = None,
+                       std: Optional[torch.Tensor] = None) -> torch.Tensor:
+    r""" Apply differentiable jpeg compression to image
     """
-    x_pixel = denormalize_img(x, mean=mean, std=std)
-    y_pixel = functional.gaussian_blur(x_pixel, kernel_size=kernel_size, sigma=sigma)
-    return normalize_img(y_pixel, mean=mean, std=std)
-
-
-# -------------------------
-# Differentiable Attacks
-# -------------------------
-def differentiable_jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = None,
-                                 mean: Optional[torch.Tensor] = None,
-                                 std: Optional[torch.Tensor] = None) -> torch.Tensor:
     with torch.no_grad():
         x_clip = clamp_pixel(x, mean=mean, std=std)
         x_jpeg = jpeg_compress(x_clip, quality_factor, mode, mean=mean, std=std)
         x_gap = x_jpeg - x
         x_gap = x_gap.detach()
     return x + x_gap
+
+
+# -------------------------
+# HiDDeN Attacks
+# -------------------------
+def watermark_dropout(x: torch.Tensor, x0: torch.Tensor, p: float) -> torch.Tensor:
+    r""" Randomly remove watermark pixels
+
+    Args:
+        x: Tensor image
+        x0: Non-encoded Image
+        p: Probability of dropout
+    """
+    mask = torch.bernoulli(torch.full_like(x, p)).bool()
+    return torch.where(mask, x0, x)
+
+
+def watermark_cropout(x: torch.Tensor, x0: torch.Tensor,
+                      top: Union[float, int], left: Union[float, int],
+                      height: Union[float, int], width: Union[float, int]) -> torch.Tensor:
+    r""" Crop and only keep a region of watermarked pixels
+    """
+    mask = torch.ones(x.shape, device=x.device, dtype=torch.bool)
+    if isinstance(top, float) or isinstance(left, float) or isinstance(height, float) or isinstance(width, float):
+        h0, w0 = x0.shape[-2:]
+        top = int(top * h0)
+        left = int(left * w0)
+        height = int(height * h0)
+        width = int(width * w0)
+    mask[top:top + height, left:left + width].fill_(False)
+    return torch.where(mask, x0, x)
+
+
+def watermark_center_cropout(x: torch.Tensor, x0: torch.Tensor,
+                             scale: float) -> torch.Tensor:
+    r""" Crop and only keep a region of watermarked pixels
+    """
+    mask = torch.ones(x.shape, device=x.device, dtype=torch.bool)
+    h0, w0 = x0.shape[-2:]
+    top = int(h0 * (1 - scale) / 2)
+    left = int(w0 * (1 - scale) / 2)
+    height = int(scale * h0)
+    width = int(scale * w0)
+    mask[top:top + height, left:left + width].fill_(False)
+    return torch.where(mask, x0, x)

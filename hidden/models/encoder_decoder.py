@@ -18,7 +18,7 @@ class EncoderDecoder(nn.Module):
     def __init__(self,
                  encoder: nn.Module,
                  attenuation: attenuations.JND,
-                 augmentation: nn.Module,
+                 attack_layer: nn.Module,
                  decoder: nn.Module,
                  scale_channels: bool,
                  scaling_i: float,
@@ -29,7 +29,7 @@ class EncoderDecoder(nn.Module):
         super().__init__()
         self.encoder = encoder
         self.attenuation = attenuation
-        self.augmentation = augmentation
+        self.attack_layer = attack_layer
         self.decoder = decoder
         # params for the forward pass
         self.scale_channels = scale_channels
@@ -44,10 +44,9 @@ class EncoderDecoder(nn.Module):
             self.register_buffer('std', torch.tensor(std, dtype=torch.float32))
 
     def forward(self,
-                imgs: torch.Tensor,
-                msgs: torch.Tensor,
-                eval_mode: bool = False,
-                eval_aug: nn.Module = nn.Identity()):
+                x0: torch.Tensor,
+                m: torch.Tensor,
+                eval_attack: Optional[nn.Module] = None):
         r"""
         Does the full forward pass of the encoder-decoder network:
         - encodes the message into the image
@@ -56,14 +55,12 @@ class EncoderDecoder(nn.Module):
         - decodes the watermark
 
         Args:
-            imgs: b c h w
-            msgs: b l
-            eval_mode: bool
-            eval_aug: nn.Module
+            x0: b c h w
+            m: b l
+            eval_attack: nn.Module
         """
-
         # encoder
-        deltas_w = self.encoder(imgs, msgs)  # b c h w
+        delta_w = self.encoder(x0, m)  # b c h w
 
         # scaling channels: more weight to blue channel
         if self.scale_channels and self.std is not None:
@@ -71,26 +68,26 @@ class EncoderDecoder(nn.Module):
             # aas = aa * torch.tensor([(1 / 0.299), (1 / 0.587), (1 / 0.114)])
             aas = 1 / self.std
             aas /= aas.mean()
-            deltas_w = deltas_w * aas.to(dtype=imgs.dtype).view(-1, 1, 1)
+            delta_w = delta_w * aas.to(dtype=x0.dtype).view(-1, 1, 1)
 
         # add heatmaps
         if self.attenuation is not None:
-            heatmaps = self.attenuation.heatmaps(imgs)  # b 1 h w
-            deltas_w = deltas_w * heatmaps  # # b c h w * b 1 h w -> b c h w
-        imgs_w = self.scaling_i * imgs + self.scaling_w * deltas_w  # b c h w
+            heatmaps = self.attenuation.heatmaps(x0)  # b 1 h w
+            delta_w = delta_w * heatmaps  # # b c h w * b 1 h w -> b c h w
+        x_w = self.scaling_i * x0 + self.scaling_w * delta_w  # b c h w
 
-        # data augmentation
-        if eval_mode:
-            imgs_aug = eval_aug(imgs_w)
-            fts = self.decoder(imgs_aug)  # b c h w -> b d
+        # attack simulation
+        if eval_attack is not None:
+            x_r = eval_attack(x_w, x0)
+            m_hat = self.decoder(x_r)  # b c h w -> b d
         else:
-            imgs_aug = self.augmentation(imgs_w)
-            fts = self.decoder(imgs_aug)  # b c h w -> b d
+            x_r = self.attack_layer(x_w, x0)
+            m_hat = self.decoder(x_r)  # b c h w -> b d
 
-        fts = fts.view(-1, self.num_bits, self.redundancy)  # b k*r -> b k r
-        fts = torch.sum(fts, dim=-1)  # b k r -> b k
+        m_hat = m_hat.view(-1, self.num_bits, self.redundancy)  # b k*r -> b k r
+        m_hat = torch.sum(m_hat, dim=-1)  # b k r -> b k
 
-        return fts, (imgs_w, imgs_aug)
+        return m_hat, (x_w, x_r)
 
 
 class EncoderWithJND(nn.Module):
@@ -109,12 +106,12 @@ class EncoderWithJND(nn.Module):
         self.scaling_w = scaling_w
 
     def forward(self,
-                imgs: torch.Tensor,
-                msgs: torch.Tensor):
+                x0: torch.Tensor,
+                m: torch.Tensor):
         r""" Does the forward pass of the encoder only """
 
         # encoder
-        deltas_w = self.encoder(imgs, msgs)  # b c h w
+        delta_w = self.encoder(x0, m)  # b c h w
 
         # scaling channels: more weight to blue channel
         if self.scale_channels and self.std is not None:
@@ -122,12 +119,12 @@ class EncoderWithJND(nn.Module):
             # aas = aa * torch.tensor([(1 / 0.299), (1 / 0.587), (1 / 0.114)])
             aas = 1 / self.std
             aas /= aas.mean()
-            deltas_w = deltas_w * aas.to(dtype=imgs.dtype).view(-1, 1, 1)
+            delta_w = delta_w * aas.to(dtype=x0.dtype).view(-1, 1, 1)
 
         # add heatmaps
         if self.attenuation is not None:
-            heatmaps = self.attenuation.heatmaps(imgs)  # b 1 h w
-            deltas_w = deltas_w * heatmaps  # # b c h w * b 1 h w -> b c h w
-        imgs_w = self.scaling_i * imgs + self.scaling_w * deltas_w  # b c h w
+            heatmaps = self.attenuation.heatmaps(x0)  # b 1 h w
+            delta_w = delta_w * heatmaps  # # b c h w * b 1 h w -> b c h w
+        x_w = self.scaling_i * x0 + self.scaling_w * delta_w  # b c h w
 
-        return imgs_w
+        return x_w

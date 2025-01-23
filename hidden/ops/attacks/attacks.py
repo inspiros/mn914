@@ -1,11 +1,13 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 import torch
 import torch.nn as nn
+from torch.nn import Identity
 
 from . import functional as F
 
 __all__ = [
+    'Identity',
     'ImageNormalize',
     'ImageDenormalize',
     'RoundPixel',
@@ -16,8 +18,12 @@ __all__ = [
     'Rotate',
     'AdjustBrightness',
     'AdjustContrast',
-    'JPEGCompress',
     'GaussianBlur',
+    'JPEGCompress',
+    'DiffJPEGCompress',
+    'WatermarkDropout',
+    'WatermarkCropout',
+    'WatermarkCenterCropout',
 ]
 
 
@@ -86,12 +92,14 @@ class CenterCrop(_BaseAttack):
 
 
 class Resize(_BaseAttack):
-    def __init__(self, scale: float) -> None:
+    def __init__(self, scale: float,
+                 interpolation: F.InterpolationMode = F.InterpolationMode.BILINEAR) -> None:
         super().__init__()
         self.scale = scale
+        self.interpolation = interpolation
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.resize(x, self.scale)
+        return F.resize(x, self.scale, self.interpolation)
 
 
 class Rotate(_BaseAttack):
@@ -125,6 +133,18 @@ class AdjustContrast(_DenormalizedAttack):
         return F.adjust_contrast(x, self.contrast_factor, self.mean, self.std)
 
 
+class GaussianBlur(_DenormalizedAttack):
+    def __init__(self, kernel_size: int, sigma: float = 1.,
+                 mean: Optional[Tuple[float, ...]] = None,
+                 std: Optional[Tuple[float, ...]] = None) -> None:
+        super().__init__(mean, std)
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.gaussian_blur(x, self.kernel_size, self.sigma, self.mean, self.std)
+
+
 class JPEGCompress(_DenormalizedAttack):
     def __init__(self, quality_factor: int = 8, mode: Optional[str] = None,
                  mean: Optional[Tuple[float, ...]] = None,
@@ -137,13 +157,47 @@ class JPEGCompress(_DenormalizedAttack):
         return F.jpeg_compress(x, self.quality_factor, self.mode, self.mean, self.std)
 
 
-class GaussianBlur(_DenormalizedAttack):
-    def __init__(self, kernel_size: int, sigma: float = 1.,
+class DiffJPEGCompress(_DenormalizedAttack):
+    def __init__(self, quality_factor: int, mode: Optional[str] = None,
                  mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
+                 std: Optional[Tuple[float, ...]] = None):
         super().__init__(mean, std)
-        self.kernel_size = kernel_size
-        self.sigma = sigma
+        self.quality_factor = quality_factor
+        self.mode = mode
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.gaussian_blur(x, self.kernel_size, self.sigma, self.mean, self.std)
+        return F.diff_jpeg_compress(x, self.quality_factor, self.mode, self.mean, self.std)
+
+
+# -------------------------
+# HiDDeN Attacks
+# -------------------------
+class WatermarkDropout(_BaseAttack):
+    def __init__(self, p: float) -> None:
+        super().__init__()
+        self.p = p
+
+    def forward(self, x: torch.Tensor, x0: torch.Tensor) -> torch.Tensor:
+        return F.watermark_dropout(x, x0, self.p)
+
+
+class WatermarkCropout(_BaseAttack):
+    def __init__(self, top: Union[float, int], left: Union[float, int],
+                 height: Union[float, int], width: Union[float, int]) -> None:
+        super().__init__()
+        self.top = top
+        self.left = left
+        self.height = height
+        self.width = width
+
+    def forward(self, x: torch.Tensor, x0: torch.Tensor) -> torch.Tensor:
+        return F.watermark_cropout(x, x0, self.top, self.left, self.height, self.width)
+
+
+class WatermarkCenterCropout(_BaseAttack):
+    def __init__(self, scale: float) -> None:
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, x: torch.Tensor, x0: torch.Tensor) -> torch.Tensor:
+        return F.watermark_center_cropout(x, x0, self.scale)

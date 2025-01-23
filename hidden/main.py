@@ -44,9 +44,9 @@ from torchvision.utils import save_image
 # add hidden path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hidden import augmentation, models, transforms, utils
+from hidden import models, transforms, utils
 from hidden.loss import *
-from hidden.models import attenuations
+from hidden.models import attenuations, attack_layers
 from hidden.ops import attacks, metrics
 
 
@@ -259,20 +259,38 @@ def main():
 
     # Construct data augmentation seen at train time
     if params.data_augmentation == 'combined':
-        data_aug = augmentation.HiddenAug(params.img_size, params.p_crop, params.p_blur, params.p_jpeg,
-                                          params.p_rot, params.p_color_jitter, params.p_resize).to(params.device)
+        data_aug = attack_layers.HiddenAttackLayer(params.img_size, params.p_crop, params.p_blur, params.p_jpeg,
+                                                   params.p_rot, params.p_color_jitter, params.p_resize).to(
+            params.device)
     elif params.data_augmentation == 'kornia':
-        data_aug = augmentation.KorniaAug().to(params.device)
+        data_aug = attack_layers.KorniaAttackLayer().to(params.device)
     elif params.data_augmentation == 'none':
-        data_aug = nn.Identity().to(params.device)
+        data_aug = attack_layers.Identity().to(params.device)
     else:
         raise ValueError('Unknown data augmentation type')
     print('data augmentation:', data_aug)
 
+    # Construct data augmentation at eval time
+    eval_attacks = {
+        'none': attacks.Identity(),
+        'crop_01': attacks.CenterCrop(0.1),
+        'crop_05': attacks.CenterCrop(0.5),
+        # 'resize_03': attacks.Resize(0.3),
+        'resize_05': attacks.Resize(0.5),
+        'rot_25': attacks.Rotate(25),
+        'rot_90': attacks.Rotate(90),
+        'blur': attacks.GaussianBlur(kernel_size=5, sigma=2.0,
+                                     mean=params.data_mean, std=params.data_std).to(params.device),
+        # 'brightness_2': attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_50': attacks.JPEGCompress(50,
+                                        mean=params.data_mean, std=params.data_std).to(params.device),
+    }
+    eval_attacks = {k: attack_layers.wrap_attack(v, False) for k, v in eval_attacks.items()}
+
     # Create encoder/decoder
     encoder_decoder = models.EncoderDecoder(encoder=encoder,
                                             attenuation=attenuation,
-                                            augmentation=data_aug,
+                                            attack_layer=data_aug,
                                             decoder=decoder,
                                             scale_channels=params.scale_channels,
                                             scaling_i=params.scaling_i,
@@ -298,7 +316,7 @@ def main():
     print('optimizer:', optimizer)
     print('scheduler:', scheduler)
 
-    # optionally resume training 
+    # optionally resume training
     if params.resume_from is not None:
         utils.restart_from_checkpoint(
             params.resume_from,
@@ -322,7 +340,6 @@ def main():
     start_time = time.time()
     best_bit_acc = 0
     for epoch in range(start_epoch, params.epochs):
-
         if params.dist:
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
@@ -331,7 +348,7 @@ def main():
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()}, 'epoch': epoch}
 
         if epoch % params.eval_freq == 0:
-            val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, params)
+            val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, eval_attacks, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
 
         save_dict = {
@@ -363,17 +380,16 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
     header = 'Train - Epoch: [{}/{}]'.format(epoch, params.epochs)
     metric_logger = utils.MetricLogger(delimiter='  ')
 
-    for it, (imgs, _) in enumerate(metric_logger.log_every(loader, 10, header)):
-        imgs = imgs.to(params.device, non_blocking=True)  # b c h w
+    for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
+        x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        msgs_ori = torch.rand((imgs.shape[0], params.num_bits)) > 0.5  # b k
-        msgs = 2 * msgs_ori.type(torch.float).to(params.device) - 1  # b k
+        m_ori = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5)).to(torch.bool)  # b k
+        m = (2 * m_ori.to(torch.float) - 1).to(params.device)  # b k
 
-        fts, (imgs_w, imgs_aug) = encoder_decoder(imgs, msgs)
+        m_hat, (x_w, x_r) = encoder_decoder(x0, m)
 
-        loss_w = message_loss(fts, msgs, m=params.loss_margin, loss_type=params.loss_w_type)  # b k -> 1
-        loss_i = image_loss(imgs_w, imgs, loss_type=params.loss_i_type)  # b c h w -> 1
-
+        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w_type)  # b k -> 1
+        loss_i = image_loss(x_w, x0, loss_type=params.loss_i_type)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # gradient step
@@ -382,14 +398,14 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
         optimizer.step()
 
         # img stats
-        psnrs = metrics.psnr(imgs_w, imgs)  # b 1
+        psnrs = metrics.psnr(x_w, x0)  # b 1
         # msg stats
-        ori_msgs = torch.sign(msgs) > 0
-        decoded_msgs = torch.sign(fts) > 0  # b k -> b k
+        ori_msgs = torch.sign(m) > 0
+        decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
         bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
         word_accs = (bit_accs == 1)  # b
-        norm = torch.norm(fts, dim=-1, keepdim=True)  # b d -> b 1
+        norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
@@ -407,11 +423,11 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
         # if epoch % 1 == 0 and it % 10 == 0 and utils.is_main_process():
         if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
-            save_image(params.denormalize(imgs),
+            save_image(params.denormalize(x0),
                        os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_ori.png'), nrow=8)
-            save_image(params.denormalize(imgs_w),
+            save_image(params.denormalize(x_w),
                        os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_w.png'), nrow=8)
-            save_image(params.denormalize(imgs_aug),
+            save_image(params.denormalize(x_r),
                        os.path.join(params.output_dir, f'{epoch:03}_{it:03}_train_aug.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
@@ -421,35 +437,34 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
 # noinspection DuplicatedCode
 @torch.no_grad()
-def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, params):
+def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_attacks, params):
     r"""
     One epoch of eval.
     """
     encoder_decoder.eval()
     header = 'Eval - Epoch: [{}/{}]'.format(epoch, params.epochs)
     metric_logger = utils.MetricLogger(delimiter='  ')
-    for it, (imgs, _) in enumerate(metric_logger.log_every(loader, 10, header)):
-        imgs = imgs.to(params.device, non_blocking=True)  # b c h w
+    for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
+        x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        msgs_ori = torch.rand((imgs.shape[0], params.num_bits)) > 0.5  # b k
-        msgs = 2 * msgs_ori.type(torch.float).to(params.device) - 1  # b k
+        m_ori = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5)).to(torch.bool)  # b k
+        m = (2 * m_ori.to(torch.float) - 1).to(params.device)  # b k
 
-        fts, (imgs_w, imgs_aug) = encoder_decoder(imgs, msgs, eval_mode=True)
+        m_hat, (x_w, x_asd) = encoder_decoder(x0, m, eval_attack=lambda x, _: x)
 
-        loss_w = message_loss(fts, msgs, m=params.loss_margin, loss_type=params.loss_w_type)  # b -> 1
-        loss_i = image_loss(imgs_w, imgs, loss_type=params.loss_i_type)  # b c h w -> 1
-
+        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w_type)  # b -> 1
+        loss_i = image_loss(x_w, x0, loss_type=params.loss_i_type)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # img stats
-        psnrs = metrics.psnr(imgs_w, imgs)  # b 1
+        psnrs = metrics.psnr(x_w, x0)  # b 1
         # msg stats
-        ori_msgs = torch.sign(msgs) > 0
-        decoded_msgs = torch.sign(fts) > 0  # b k -> b k
+        ori_msgs = torch.sign(m) > 0
+        decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
         bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
         word_accs = (bit_accs == 1)  # b
-        norm = torch.norm(fts, dim=-1, keepdim=True)  # b d -> b 1
+        norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
@@ -460,23 +475,9 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, params
             'norm_avg': torch.mean(norm).item(),
         }
 
-        eval_attacks = {
-            'none': nn.Identity(),
-            'crop_01': attacks.CenterCrop(0.1),
-            'crop_05': attacks.CenterCrop(0.5),
-            # 'resize_03': attacks.Resize(0.3),
-            'resize_05': attacks.Resize(0.5),
-            'rot_25': attacks.Rotate(25),
-            'rot_90': attacks.Rotate(90),
-            'blur': attacks.GaussianBlur(kernel_size=5, sigma=2.0,
-                                         mean=params.data_mean, std=params.data_std).to(params.device),
-            # 'brightness_2': attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
-            'jpeg_50': attacks.JPEGCompress(50,
-                                            mean=params.data_mean, std=params.data_std).to(params.device),
-        }
         for name, attack in eval_attacks.items():
-            fts, (_) = encoder_decoder(imgs, msgs, eval_mode=True, eval_aug=attack)
-            decoded_msgs = torch.sign(fts) > 0  # b k -> b k
+            m_hat, (_) = encoder_decoder(x0, m, eval_attack=attack)
+            decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
             diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
             log_stats[f'bit_acc_{name}'] = diff.float().mean().item()
 
@@ -485,9 +486,9 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, params
             metric_logger.update(**{name: loss})
 
         if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
-            save_image(params.denormalize(imgs),
+            save_image(params.denormalize(x0),
                        os.path.join(params.output_dir, f'{epoch:03}_{it:03}_val_ori.png'), nrow=8)
-            save_image(params.denormalize(imgs_w),
+            save_image(params.denormalize(x_w),
                        os.path.join(params.output_dir, f'{epoch:03}_{it:03}_val_w.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
