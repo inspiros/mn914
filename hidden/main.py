@@ -128,6 +128,7 @@ def parse_args():
     aa('--local_rank', default=-1, type=int)
     aa('--master_port', default=-1, type=int)
     aa('--dist', type=utils.bool_inst, default=False, help='Enabling distributed training')
+    aa('--device', type=str, default='cuda:0', help='Device')
 
     group = parser.add_argument_group('Misc')
     aa('--seed', default=0, type=int, help='Random seed')
@@ -143,6 +144,11 @@ def parse_args():
             params.scheduler = None
     if (params.data_mean is None) ^ (params.data_std is None):
         raise ValueError('Data mean and std are both required.')
+
+    if params.dist:
+        params.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    else:
+        params.device = torch.device(params.device) if torch.cuda.is_available() else torch.device('cpu')
 
     return params
 
@@ -165,8 +171,6 @@ def main():
     # Print the arguments
     print('__git__:{}'.format(utils.get_sha()))
     print('__log__:{}'.format(json.dumps(vars(params))))
-
-    params.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     # Misc
     normalize_transform = transforms.Normalize(dataset=params.dataset, mean=params.data_mean, std=params.data_std)

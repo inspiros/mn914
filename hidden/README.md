@@ -178,6 +178,7 @@ This can also be added at test time only, at the cost of some accuracy.
 - `--local_rank`: Local rank for distributed training. Default: -1
 - `--master_port`: Port for the master process. Default: -1
 - `--dist`: Enable distributed training. Default: False
+- `--device`: Device to train on if distributed training is disabled. Default: cuda:0
 
 </details>
 
@@ -187,17 +188,16 @@ The following command resembles the one that reproduces the results in the origi
 
 - On Linux:
 ```cmd
-torchrun --nproc_per_node=2 main.py \
-  --dataset mnist --eval_freq 5 \
+python main.py \
+  --dataset MNIST --eval_freq 5 \
   --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 100 \
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
   --optimizer Lamb,lr=2e-2 \
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
   --scaling_w 0.3 --scale_channels False --attenuation none \
-  --loss_w_type bce --loss_margin 1 \
-  --dist
+  --loss_w_type bce --loss_margin 1
 ```
-- On Windows _(without distributed)_:
+- On Windows:
 ```cmd
 python main.py `
   --dataset MNIST --eval_freq 5 `
@@ -208,3 +208,6 @@ python main.py `
   --scaling_w 0.3 --scale_channels False --attenuation none `
   --loss_w_type bce --loss_margin 1
 ```
+
+To enable distributed training, use `torchrun --nproc_per_node=[procs] main.py` instead of `python main.py` and
+define `--dist`.
