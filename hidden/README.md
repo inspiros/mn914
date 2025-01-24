@@ -28,7 +28,7 @@ Fortunately, we can rely on `torchvision.datasets`.
 hidden/
 │   README.md
 │   requirements.txt
-└───ckpt/                <== (optional) Final checkpoints
+└───ckpts/               <== Final checkpoints
 └───data/                <== (optional) Dataset
 └───models/              <== Contains encoders, decoders, attack_layers, attenuations
 └───notebooks/           <== Demo notebooks
