@@ -1,6 +1,9 @@
 Revisited Stable Signature
 ------
 
+This code was modified from
+[Stable Signature codebase](https://github.com/facebookresearch/stable_signature).
+
 ## Setup
 
 ### Perceptual Losses
@@ -12,6 +15,13 @@ and then put them on the folder `../ckpts/loss` (or define the path with `--loss
 ## Usage
 
 ### Fine-tuning GAN:
+
+Instead of fine-tuning the decoder of a LDM as in the original work, we can finetune the generator of a GAN.
+In this case, the notions of dataset and epoch are discarded as we can simply sample from the prior distribution.
+
+<p align="center">
+<img src="../resources/stable_signature_gan_basic_pipeline.png" width="600"/>
+</p>
 
 The full parameters list is to be decided.
 
