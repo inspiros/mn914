@@ -63,7 +63,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     aa('--loss_w', type=str, default='bce', help='Type of loss for the watermark loss. Can be mse or bce')
     aa('--lambda_i', type=float, default=1.0, help='Weight of the image loss in the total loss')
     aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss in the total loss')
-    aa('--loss_i_dir', type=str, default=os.path.join('ckpts/loss'),
+    aa('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
        help='Pretrained weights dir for image loss.')
     aa('--optimizer', type=str, default='AdamW,lr=5e-4', help='Optimizer and learning rate for training')
     aa('--steps', type=int, default=100, help='Number of steps to train the model for')
