@@ -5,11 +5,11 @@ from ._conv import ConvBNRelu
 
 
 class HiddenEncoder(nn.Module):
-    """
+    r"""
     Inserts a watermark into an image.
     """
 
-    def __init__(self, num_blocks, num_bits, channels, in_channels=3, last_tanh=True):
+    def __init__(self, num_blocks: int, num_bits: int, channels: int, in_channels: int = 3, last_tanh: bool = True):
         super(HiddenEncoder, self).__init__()
         layers = [ConvBNRelu(in_channels, channels)]
 
@@ -43,13 +43,13 @@ class HiddenEncoder(nn.Module):
 
 
 class HiddenDecoder(nn.Module):
-    """
+    r"""
     Decoder module. Receives a watermarked image and extracts the watermark.
     The input image may have various kinds of noise applied to it,
     such as Crop, JpegCompression, and so on. See Noise layers for more.
     """
 
-    def __init__(self, num_blocks, num_bits, channels, in_channels=3):
+    def __init__(self, num_blocks: int, num_bits: int, channels: int, in_channels: int = 3):
         super(HiddenDecoder, self).__init__()
 
         layers = [ConvBNRelu(in_channels, channels)]

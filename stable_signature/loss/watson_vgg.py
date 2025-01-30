@@ -11,11 +11,11 @@ __all__ = ['WatsonDistanceVgg']
 
 
 class VggFeatureExtractor(nn.Module):
-    def __init__(self):
+    def __init__(self, pretrained: bool = True):
         super(VggFeatureExtractor, self).__init__()
 
         # download vgg
-        vgg16 = torchvision.models.vgg16(pretrained=True).features
+        vgg16 = torchvision.models.vgg16(pretrained=pretrained).features
 
         # set non trainable
         for param in vgg16.parameters():
@@ -69,19 +69,20 @@ def softmax(a, b, factor=1):
 
 class WatsonDistanceVgg(nn.Module):
     r"""
-    Loss function based on Watsons perceptual distance.
+    Loss function based on Watson's perceptual distance.
     Based on deep feature extraction
 
     Parameters:
+        pretrained: bool, download pretrained model
         trainable: bool, if True parameters of the loss are trained and dropout is enabled.
         reduction: 'sum' or 'none', determines return format
     """
 
-    def __init__(self, trainable: bool = False, reduction: str = 'sum'):
+    def __init__(self, pretrained: bool = True, trainable: bool = False, reduction: str = 'sum'):
         super().__init__()
 
         # module to perform feature extraction
-        self.add_module('vgg', VggFeatureExtractor())
+        self.add_module('vgg', VggFeatureExtractor(pretrained=pretrained))
 
         # imagenet-normalization
         self.shift = nn.Parameter(torch.Tensor([-.030, -.088, -.188]).view(1, 3, 1, 1), requires_grad=False)

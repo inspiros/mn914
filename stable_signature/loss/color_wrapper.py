@@ -2,6 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+__all__ = [
+    'RGB2YCbCr',
+    'ColorWrapper',
+    'GreyscaleWrapper',
+]
+
 
 class RGB2YCbCr(nn.Module):
     def __init__(self):
@@ -11,9 +17,9 @@ class RGB2YCbCr(nn.Module):
         bias = torch.tensor([0, 0.5, 0.5])
         self.bias = nn.Parameter(bias, requires_grad=False)
 
-    def forward(self, rgb):
-        N, C, H, W = rgb.shape
-        assert C == 3
+    def forward(self, rgb: torch.Tensor) -> torch.Tensor:
+        c = rgb.size(1)
+        assert c == 3
         rgb = rgb.transpose(1, 3)
         cbcr = torch.matmul(rgb, self.transform)
         cbcr += self.bias
@@ -43,10 +49,10 @@ class ColorWrapper(nn.Module):
         self.w_tild = nn.Parameter(torch.zeros(3), requires_grad=trainable)
 
     @property
-    def w(self):
+    def w(self) -> torch.Tensor:
         return F.softmax(self.w_tild, dim=0)
 
-    def forward(self, input, target):
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         # convert color space
         input = self.to_YCbCr(input)
         target = self.to_YCbCr(target)
@@ -75,19 +81,18 @@ class GreyscaleWrapper(nn.Module):
         # submodules
         self.add_module('loss', lossclass(*args, **kwargs))
 
-    def to_greyscale(self, tensor):
+    def to_greyscale(self, tensor: torch.Tensor) -> torch.Tensor:
         return tensor[:, [0], :, :] * 0.3 + tensor[:, [1], :, :] * 0.59 + tensor[:, [2], :, :] * 0.11
 
-    def forward(self, input, target):
-        (N, C, X, Y) = input.size()
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        n, c, h, w = input.size()
 
-        if N == 3:
+        if n == 3:
             # convert input to greyscale
             input = self.to_greyscale(input)
             target = self.to_greyscale(target)
 
         # input in now greyscale, expand to 3 channels
-        input = input.expand(N, 3, X, Y)
-        target = target.expand(N, 3, X, Y)
-
+        input = input.expand(n, 3, h, w)
+        target = target.expand(n, 3, h, w)
         return self.loss.forward(input, target)

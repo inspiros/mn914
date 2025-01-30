@@ -99,9 +99,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     aa('--lambda_i', type=float, default=0.0, help='Weight of the image loss. (Default: 0.0)')
     aa('--loss_margin', type=float, default=1,
        help='Margin of the Hinge loss or temperature of the sigmoid of the BCE loss. (Default: 1.0)')
-    aa('--loss_w_type', type=str, default='bce',
+    aa('--loss_w', type=str, default='bce',
        help='Loss type. "bce" for binary cross entropy, "cossim" for cosine similarity (Default: bce)')
-    aa('--loss_i_type', type=str, default='mse',
+    aa('--loss_i', type=str, default='mse',
        help='Loss type. "mse" for mean squared error, "l1" for l1 loss (Default: mse)')
 
     group = parser.add_argument_group('Loader parameters')
@@ -280,7 +280,7 @@ def main():
         'none': attacks.Identity(),
         'crop_01': attacks.CenterCrop(0.1),
         'crop_05': attacks.CenterCrop(0.5),
-        # 'resize_03': attacks.Resize(0.3),
+        'resize_03': attacks.Resize(0.3),
         'resize_05': attacks.Resize(0.5),
         'rot_25': attacks.Rotate(25),
         'rot_90': attacks.Rotate(90),
@@ -392,8 +392,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m)
 
-        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w_type)  # b k -> 1
-        loss_i = image_loss(x_w, x0, loss_type=params.loss_i_type)  # b c h w -> 1
+        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w)  # b k -> 1
+        loss_i = image_loss(x_w, x0, loss_type=params.loss_i)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # gradient step
@@ -455,8 +455,8 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
 
         m_hat, (x_w, x_asd) = encoder_decoder(x0, m, eval_attack=lambda x, _: x)
 
-        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w_type)  # b -> 1
-        loss_i = image_loss(x_w, x0, loss_type=params.loss_i_type)  # b c h w -> 1
+        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w)  # b -> 1
+        loss_i = image_loss(x_w, x0, loss_type=params.loss_i)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # img stats

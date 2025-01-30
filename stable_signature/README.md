@@ -1,2 +1,43 @@
 Revisited Stable Signature
 ------
+
+## Setup
+
+### Perceptual Losses
+
+Before you can train with the Watson's perceptual losses, you need to download the weights from
+[this link](https://github.com/SteffenCzolbe/PerceptualSimilarity/tree/master/src/loss/weights)
+and then put them on the folder `../ckpts/loss` (or define the path with `--loss_i_dir`).
+
+## Usage
+
+### Fine-tuning GAN:
+
+The full parameters list is to be decided.
+
+#### MNIST Example
+
+- Linux:
+```cmd
+python finetune_gan.py --num_keys 1 \
+    --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 \
+    --steps 1000 --eval_steps 10 \
+    --generator_ckpt ../ckpts/dcgan_generator_mnist.pth \
+    --msg_decoder_path ../ckpts/hidden_mnist.pth \
+    --data_mean [0.5] --data_std [0.5] \
+    --loss_i watson-vgg --loss_w bce
+```
+- Windows:
+```cmd
+python finetune_gan.py --num_keys 1 `
+    --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 `
+    --steps 1000 --eval_steps 10 `
+    --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
+    --msg_decoder_path ../ckpts/hidden_mnist.pth `
+    --data_mean [0.5] --data_std [0.5] `
+    --loss_i watson-vgg --loss_w bce
+```
+
+#### CIFAR10 Example
+
+_To be added_

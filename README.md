@@ -39,7 +39,8 @@ mn914/
 │   README.md
 │   requirements.txt
 └───.venv/               <== (optional) virtual environment, you have to create it yourself
+└───ckpts/               <== Final model checkpoints
 └───hidden/              <== HiDDeN submodule
 └───stable_signature/    <== Stable Signature submodule
-└───resources/           <== where we store resources (figures, etc.)
+└───resources/           <== Where we store resources (figures, etc.)
 ```

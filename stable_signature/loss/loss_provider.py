@@ -7,21 +7,22 @@ from .color_wrapper import ColorWrapper, GreyscaleWrapper
 from .deep_loss import PNetLin
 from .shift_wrapper import ShiftWrapper
 from .ssim import SSIM
-from .watson import WatsonDistance
+from .watson_dct import WatsonDistanceDCT
 from .watson_fft import WatsonDistanceFFT
 from .watson_vgg import WatsonDistanceVgg
 
+__all__ = ['LossProvider']
 
-class LossProvider():
-    def __init__(self):
+
+class LossProvider:
+    def __init__(self, weights_dir: str = os.path.join(os.path.dirname(__file__), 'loss')):
+        self.weights_dir = weights_dir
         self.loss_functions = ['L1', 'L2', 'SSIM', 'Watson-dct', 'Watson-fft', 'Watson-vgg', 'Deeploss-vgg',
                                'Deeploss-squeeze', 'Adaptive']
         self.color_models = ['LA', 'RGB']
 
     def load_state_dict(self, filename):
-        current_dir = os.path.dirname(__file__)
-        path = os.path.join(current_dir, 'losses', filename)
-        return torch.load(path, map_location='cpu')
+        return torch.load(os.path.join(self.weights_dir, filename), weights_only=False, map_location='cpu')
 
     def get_loss_function(self, model, colorspace='RGB', reduction='sum', deterministic=False, pretrained=True,
                           image_size=None):
@@ -43,20 +44,20 @@ class LossProvider():
         elif model.lower() in ['watson', 'watson-dct']:
             if is_greyscale:
                 if deterministic:
-                    loss = WatsonDistance(reduction=reduction)
+                    loss = WatsonDistanceDCT(reduction=reduction)
                     if pretrained:
                         loss.load_state_dict(self.load_state_dict('gray_watson_dct_trial0.pth'))
                 else:
-                    loss = ShiftWrapper(WatsonDistance, (), {'reduction': reduction})
+                    loss = ShiftWrapper(WatsonDistanceDCT, (), {'reduction': reduction})
                     if pretrained:
                         loss.loss.load_state_dict(self.load_state_dict('gray_watson_dct_trial0.pth'))
             else:
                 if deterministic:
-                    loss = ColorWrapper(WatsonDistance, (), {'reduction': reduction})
+                    loss = ColorWrapper(WatsonDistanceDCT, (), {'reduction': reduction})
                     if pretrained:
                         loss.load_state_dict(self.load_state_dict('rgb_watson_dct_trial0.pth'))
                 else:
-                    loss = ShiftWrapper(ColorWrapper, (WatsonDistance, (), {'reduction': reduction}), {})
+                    loss = ShiftWrapper(ColorWrapper, (WatsonDistanceDCT, (), {'reduction': reduction}), {})
                     if pretrained:
                         loss.loss.load_state_dict(self.load_state_dict('rgb_watson_dct_trial0.pth'))
         elif model.lower() in ['watson-fft', 'watson-dft']:

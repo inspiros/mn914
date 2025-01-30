@@ -116,8 +116,7 @@ def get_sha():
     return message
 
 
-# utils for dataloading
-
+### Data loading
 @functools.lru_cache()
 def get_image_paths(path):
     paths = []
@@ -187,7 +186,7 @@ def pil_imgs_from_folder(folder):
     return images, filenames
 
 
-# utils for optimization and scheduler
+### Optimizers and Schedulers
 def parse_initializer_params(s):
     r"""
     Parse parameters into a dictionary, used for optimizer and scheduler parsing.
@@ -241,8 +240,7 @@ def build_lr_scheduler(name, optimizer, **lr_scheduler_params):
     raise ValueError(f'Unknown scheduler "{name}", choose among {str(tim_schedulers + torch_schedulers)}')
 
 
-# utils for distributed training
-
+### Distributed Training
 def is_dist_avail_and_initialized():
     if not dist.is_available():
         return False
@@ -424,6 +422,7 @@ def init_distributed_mode(params):
     setup_for_distributed(params.is_master)
 
 
+### Metric logging
 class SmoothedValue(object):
     r"""Track a series of values and provide access to smoothed values over a
     window or the global series average.

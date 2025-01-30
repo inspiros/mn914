@@ -16,7 +16,7 @@ def softmax(a, b, factor=1):
 
 class WatsonDistanceFFT(nn.Module):
     """
-    Loss function based on Watsons perceptual distance.
+    Loss function based on Watson's perceptual distance.
     Based on FFT quantization
 
     Parameters:

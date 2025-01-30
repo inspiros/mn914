@@ -28,7 +28,6 @@ Fortunately, we can rely on `torchvision.datasets`.
 hidden/
 │   README.md
 │   requirements.txt
-└───ckpts/               <== Final checkpoints
 └───data/                <== (optional) Dataset
 └───models/              <== Contains encoders, decoders, attack_layers, attenuations
 └───notebooks/           <== Demo notebooks
@@ -132,8 +131,8 @@ torchrun --nproc_per_node=$GPUS$ main.py --local_rank 0
 - `--lambda_w`: Weight of the watermark loss. Default: 1.0
 - `--lambda_i`: Weight of the image loss. Default: 0.0
 - `--loss_margin`: Margin of the Hinge loss or temperature of the sigmoid of the BCE loss. Default: 1.0
-- `--loss_w_type`: Loss type for watermark loss ("bce" or "cossim"). Default: 'bce'
-- `--loss_i_type`: Loss type for image loss ("mse" or "l1"). Default: 'mse'
+- `--loss_w`: Loss type for watermark loss ("bce" or "cossim"). Default: "bce"
+- `--loss_i`: Loss type for image loss ("mse" or "l1"). Default: "mse"
 
 </details>
 
@@ -183,7 +182,10 @@ This can also be added at test time only, at the cost of some accuracy.
 
 </details>
 
-#### Example
+To enable distributed training _(not available on Windows)_, use `torchrun --nproc_per_node=[procs] main.py`
+instead of `python main.py` and define `--dist`.
+
+#### MNIST Example
 
 The following command resembles the one that reproduces the results in the original paper, but for our own settings:
 
@@ -196,7 +198,7 @@ python main.py \
   --optimizer Lamb,lr=2e-2 \
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
   --scaling_w 0.3 --scale_channels False --attenuation none \
-  --loss_w_type bce --loss_margin 1
+  --loss_w bce --loss_margin 1
 ```
 - On Windows:
 ```cmd
@@ -207,8 +209,9 @@ python main.py `
   --optimizer Lamb,lr=2e-2 `
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
   --scaling_w 0.3 --scale_channels False --attenuation none `
-  --loss_w_type bce --loss_margin 1
+  --loss_w bce --loss_margin 1
 ```
 
-To enable distributed training _(not available on Windows)_, use `torchrun --nproc_per_node=[procs] main.py`
-instead of `python main.py` and define `--dist`.
+#### CIFAR10 Example
+
+_To be added_
