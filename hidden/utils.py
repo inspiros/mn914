@@ -20,13 +20,10 @@ from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import datasets as tv_datasets
 from torchvision.datasets.folder import is_image_file, default_loader
 
-from .transforms import get_default_transforms
-
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-# utils for running expes
-
+# utils for running exp
 def restart_from_checkpoint(ckp_path, run_variables=None, **kwargs):
     r"""
     Re-start from checkpoint
@@ -146,7 +143,7 @@ class ImageFolder:
 
 
 def get_dataloader(data_dir,
-                   transform=get_default_transforms(),
+                   transform,
                    batch_size=128,
                    shuffle=True,
                    num_workers=8,
@@ -157,7 +154,10 @@ def get_dataloader(data_dir,
     `dataset` and `train`.
     """
     if dataset is not None:
-        dataset = getattr(tv_datasets, dataset)(root=data_dir, train=train, transform=transform, download=True)
+        dataset_cls = getattr(tv_datasets, dataset)
+        if not isinstance(dataset_cls, type):
+            raise TypeError(f'dataset must be a type, got {type(dataset)}')
+        dataset = dataset_cls(root=data_dir, train=train, transform=transform, download=True)
     else:
         dataset = ImageFolder(data_dir, transform=transform) if custom else \
             tv_datasets.ImageFolder(data_dir, transform=transform)

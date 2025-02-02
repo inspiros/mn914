@@ -1,9 +1,10 @@
+import argparse
+
 import imageio
+import matplotlib.pyplot as plt
 import numpy as np
 from skimage import morphology
-from skimage.morphology import diamond, disk, star
-import matplotlib.pyplot as plt
-import argparse
+from skimage.morphology import ball, diamond, disk, star
 
 
 def apply_erosion(img: np.ndarray,
@@ -66,33 +67,36 @@ def apply_opening(img: np.ndarray,
     return out_img
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--img_dir", default=None, help="direction to the image")
-    parser.add_argument("--morph_type", default="erosion", help="dilation | erosion | opening | closing")
-    parser.add_argument("--struc_size", type=int, default=5, help="size of structuring element")
+    parser.add_argument('--img_path', default=None, help='path to the image')
+    parser.add_argument('--struc_size', type=int, default=3, help='size of structuring element')
     args = parser.parse_args()
 
-    img = imageio.imread("../../images/3.png", pilmode='L')
+    img = imageio.v2.imread(args.img_path if args.img_path is not None else '../../images/3.png',
+                            pilmode='L')
+    print('Loaded image', img.shape)
 
-    print(img.shape)
+    # visualize
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4))
+    axes = axes.flatten()
 
-    if args.morph_type == "erosion":
-        out_img = apply_erosion(img=img, struc_size=args.struc_size)
-    elif args.morph_type == "dilation":
-        out_img = apply_dilation(img=img, struc_size=args.struc_size)
-    elif args.morph_type == "opening":
-        out_img = apply_opening(img=img, struc_size=args.struc_size)
-    else:
-        out_img = apply_closing(img=img, struc_size=args.struc_size)
-    
-    print(out_img.shape)
+    axes[0].imshow(img, cmap='gray', vmin=0, vmax=255)
+    axes[0].set_title('$x$')
 
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 2, 1)
-    plt.imshow(img, cmap='gray')
-    plt.title("original image")
-    plt.subplot(1, 2, 2)
-    plt.imshow(out_img, cmap="gray")
-    plt.title("applied image")
+    axes[1].imshow(apply_erosion(img=img, struc_size=args.struc_size), cmap='gray', vmin=0, vmax=255)
+    axes[1].set_title('$\\mathrm{erosion}(x)$')
+
+    axes[2].imshow(apply_dilation(img=img, struc_size=args.struc_size), cmap='gray', vmin=0, vmax=255)
+    axes[2].set_title('$\\mathrm{dilation}(x)$')
+
+    axes[3].imshow(apply_opening(img=img, struc_size=args.struc_size), cmap='gray', vmin=0, vmax=255)
+    axes[3].set_title('$\\mathrm{opening}(x)$')
+
+    axes[4].imshow(apply_closing(img=img, struc_size=args.struc_size), cmap='gray', vmin=0, vmax=255)
+    axes[4].set_title('$\\mathrm{closing}(x)$')
+
+    for ax in axes:
+        ax.axis('off')
+    fig.tight_layout()
     plt.show()

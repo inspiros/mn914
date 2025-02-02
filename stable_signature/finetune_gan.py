@@ -36,8 +36,10 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
         group.add_argument(*args, **kwargs)
 
     group = parser.add_argument_group('Data parameters')
+    aa('exp', type=str, nargs='?', default=None,
+       help='Experiment name')
     aa('--dataset', type=str, default=None)
-    aa('--data_dir', type=str, default='data')
+    aa('--data_dir', type=str, default=os.path.join(project_root, 'data'))
     aa('--data_mean', type=utils.tuple_inst(float), default=None)
     aa('--data_std', type=utils.tuple_inst(float), default=None)
 
@@ -89,6 +91,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     params = parser.parse_args()
 
+    if params.exp is not None:
+        params.output_dir = os.path.join(params.output_dir, params.exp)
+
     # Print the arguments
     if verbose:
         print('__git__:{}'.format(utils.get_sha()))
@@ -107,15 +112,19 @@ def main():
     torch.cuda.manual_seed_all(params.seed)
     np.random.seed(params.seed)
 
-    # Misc
-    normalize_transform = hidden_transforms.Normalize(
-        dataset=params.dataset, mean=params.data_mean, std=params.data_std)
-    params.data_mean = normalize_transform.mean
-    params.data_std = normalize_transform.std
+    # Normalization
+    if params.data_mean is None:
+        try:
+            mean, std = hidden_transforms.get_dataset_stats(params.dataset, strict=True)
+        except KeyError:
+            mean, std = hidden_transforms.get_dataset_stats_from_channels(params.img_channels)
+        params.data_mean = mean
+        params.data_std = std
+        del mean, std
     params.normalize = attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
     params.denormalize = attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
 
-    # Create the directories
+    # Create output dirs
     if not os.path.exists(params.output_dir):
         os.makedirs(params.output_dir)
     params.imgs_dir = os.path.join(params.output_dir, 'imgs')
@@ -234,6 +243,8 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
     header = 'Train'
     metric_logger = utils.MetricLogger(delimiter='  ')
     G.train()
+
+    std = torch.tensor(params.data_std, device=params.device)
     base_lr = optimizer.param_groups[0]['lr']
     keys = key.repeat(params.batch_size, 1)
     for it in metric_logger.log_every(range(params.steps), params.log_freq, header):
@@ -266,10 +277,9 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
             'loss': loss.item(),
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
-            'psnr': torch.mean(metrics.psnr(x_w, x0)).item(),
-            # 'psnr_ori': utils_img.psnr(imgs_w, imgs).mean().item(),
-            'bit_acc_avg': torch.mean(bit_accs).item(),
-            'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
+            'psnr': metrics.psnr(x_w, x0, std=std).mean().item(),
+            'bit_acc_avg': bit_accs.mean().item(),
+            'word_acc_avg': word_accs.float().mean().item(),
             'lr': optimizer.param_groups[0]['lr'],
         }
         for name, loss in log_stats.items():
@@ -295,6 +305,7 @@ def val(G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
     metric_logger = utils.MetricLogger(delimiter='  ')
     G.eval()
 
+    std = torch.tensor(params.data_std, device=params.device)
     keys = key.repeat(params.batch_size, 1)
     # assuring same latent vectors generated
     generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
@@ -308,7 +319,7 @@ def val(G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
 
         log_stats = {
             'iteration': it,
-            'psnr': torch.mean(metrics.psnr(x_w, x0)).item(),
+            'psnr': metrics.psnr(x_w, x0, std=std).mean().item(),
         }
         for name, attack in eval_attacks.items():
             imgs_aug = attack(img_transform(x_w))
@@ -316,12 +327,12 @@ def val(G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
             diff = (~torch.logical_xor(m_hat > 0, keys > 0))  # b k -> b k
             bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
             word_accs = (bit_accs == 1)  # b
-            log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
-            log_stats[f'word_acc_{name}'] = torch.mean(word_accs.type(torch.float)).item()
+            log_stats[f'bit_acc_{name}'] = bit_accs.mean().item()
+            log_stats[f'word_acc_{name}'] = word_accs.float().mean().item()
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if (it + 1) % params.save_img_freq == 0:
+        if it == 0:
             save_image(torch.clamp(params.denormalize(x0), 0, 1),
                        os.path.join(params.imgs_dir, f'{it:05d}_val_x0.png'), nrow=8)
             save_image(torch.clamp(params.denormalize(x_w), 0, 1),

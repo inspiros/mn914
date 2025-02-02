@@ -65,6 +65,7 @@ torchrun --nproc_per_node=$GPUS$ main.py --local_rank 0
 <details>
 <summary><span style="font-weight: normal;">Experiment Parameters</span></summary>
 
+- `exp`: Name of the experiment.
 - `--dataset`: Named dataset in `torchvision.datasets`. Default: None
 - `--data_dir`: Path to the directory to download the dataset if `--dataset` is defined. Default: "data"
 - `--train_dir`: Path to the directory containing the training data. Default: "data/coco/train"
@@ -185,13 +186,13 @@ This can also be added at test time only, at the cost of some accuracy.
 To enable distributed training _(not available on Windows)_, use `torchrun --nproc_per_node=[procs] main.py`
 instead of `python main.py` and define `--dist`.
 
-#### MNIST Example
+The following commands resemble the one that reproduces the results in the original paper, but for our own settings:
 
-The following command resembles the one that reproduces the results in the original paper, but for our own settings:
+#### MNIST Example
 
 - On Linux:
 ```cmd
-python main.py \
+python main.py mnist \
   --dataset MNIST --eval_freq 5 \
   --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 \
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
@@ -202,7 +203,7 @@ python main.py \
 ```
 - On Windows:
 ```cmd
-python main.py `
+python main.py mnist `
   --dataset MNIST --eval_freq 5 `
   --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 `
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
@@ -214,4 +215,25 @@ python main.py `
 
 #### CIFAR10 Example
 
-_To be added_
+- On Linux:
+```cmd
+python main.py cifar10 \
+  --dataset CIFAR10 --eval_freq 5 \
+  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 \
+  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
+  --optimizer Lamb,lr=2e-2 \
+  --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
+  --scaling_w 0.3 --scale_channels False --attenuation none \
+  --loss_w bce --loss_margin 1
+```
+- On Windows:
+```cmd
+python main.py cifar10 `
+  --dataset CIFAR10 --eval_freq 5 `
+  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 `
+  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
+  --optimizer Lamb,lr=2e-2 `
+  --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
+  --scaling_w 0.3 --scale_channels False --attenuation none `
+  --loss_w bce --loss_margin 1
+```

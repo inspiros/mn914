@@ -5,7 +5,6 @@ import torch
 from torchvision.transforms import functional as F_tv
 from torchvision.transforms.functional import InterpolationMode
 
-from .utils import _get_dataset_stats_tensors_from_shape
 from ..utils import encoding_quality
 
 __all__ = [
@@ -36,8 +35,8 @@ def normalize_img(x: torch.Tensor,
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
     if mean is None:
-        mean, std = _get_dataset_stats_tensors_from_shape(x, device=x.device)
-    return (x - mean.to(dtype=x.dtype)) / std.to(dtype=x.dtype)
+        return x
+    return (x - mean.view(-1, 1, 1)) / std.view(-1, 1, 1)
 
 
 def denormalize_img(x: torch.Tensor,
@@ -47,8 +46,8 @@ def denormalize_img(x: torch.Tensor,
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
     if mean is None:
-        mean, std = _get_dataset_stats_tensors_from_shape(x, device=x.device)
-    return (x * std.to(dtype=x.dtype)) + mean.to(dtype=x.dtype)
+        return x
+    return (x * std.view(-1, 1, 1)) + mean.view(-1, 1, 1)
 
 
 def round_pixel(x: torch.Tensor,
@@ -101,11 +100,11 @@ def project_linf(x: torch.Tensor, y: torch.Tensor, radius: float,
         std: Dataset std
      """
     if std is None:
-        _, std = _get_dataset_stats_tensors_from_shape(x, device=x.device)
+        std = x.new_ones(x.size(-3), 1, 1)
     delta = x - y
-    delta = 255 * (delta * std.to(dtype=x.dtype))
+    delta = 255 * (delta * std.view(-1, 1, 1))
     delta = torch.clamp(delta, -radius, radius)
-    delta = (delta / 255.0) / std.to(dtype=x.dtype)
+    delta = (delta / 255.0) / std.view(-1, 1, 1)
     return y + delta
 
 

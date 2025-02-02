@@ -52,16 +52,20 @@ from hidden.ops import attacks, metrics
 
 def parse_args(verbose: bool = True) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    project_root = os.path.dirname(os.path.dirname(__file__))
 
     def aa(*args, **kwargs):
         group.add_argument(*args, **kwargs)
 
     group = parser.add_argument_group('Experiments parameters')
+    aa('exp', type=str, nargs='?', default=None,
+       help='Experiment name')
     aa('--dataset', type=str, default=None)
-    aa('--data_dir', type=str, default='data')
-    aa('--train_dir', type=str, default='data/coco/train')
-    aa('--val_dir', type=str, default='data/coco/val')
-    aa('--output_dir', type=str, default='outputs', help='Output directory for logs and images (Default: outputs)')
+    aa('--data_dir', type=str, default=os.path.join(project_root, 'data'))
+    aa('--train_dir', type=str, default=None)
+    aa('--val_dir', type=str, default=None)
+    aa('--output_dir', type=str, default='outputs',
+       help='Output directory for logs and images (Default: outputs)')
     aa('--data_mean', type=utils.tuple_inst(float), default=None)
     aa('--data_std', type=utils.tuple_inst(float), default=None)
 
@@ -135,6 +139,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     params = parser.parse_args()
 
+    if params.exp is not None:
+        params.output_dir = os.path.join(params.output_dir, params.exp)
+
     # handle params that are 'none'
     if params.attenuation is not None:
         if params.attenuation.lower() == 'none':
@@ -173,12 +180,23 @@ def main():
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
-    # Misc
-    normalize_transform = transforms.Normalize(dataset=params.dataset, mean=params.data_mean, std=params.data_std)
-    params.data_mean = normalize_transform.mean
-    params.data_std = normalize_transform.std
-    params.normalize = attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
-    params.denormalize = attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
+    # Normalization
+    if params.data_mean is None:
+        try:
+            mean, std = transforms.get_dataset_stats(params.dataset, strict=True)
+        except KeyError:
+            mean, std = transforms.get_dataset_stats_from_channels(params.img_channels)
+        params.data_mean = mean
+        params.data_std = std
+        del mean, std
+    params.normalize = attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
+    params.denormalize = attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
+
+    # Create output dirs
+    if not os.path.exists(params.output_dir):
+        os.makedirs(params.output_dir)
+    params.imgs_dir = os.path.join(params.output_dir, 'imgs')
+    os.makedirs(params.imgs_dir, exist_ok=True)
 
     # Data loaders
     train_transform = tv_transforms.Compose([
@@ -186,13 +204,13 @@ def main():
         tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         tv_transforms.RandomHorizontalFlip(),
         tv_transforms.ToTensor(),
-        normalize_transform,
+        transforms.Normalize(params.data_mean, params.data_std),
     ])
     val_transform = tv_transforms.Compose([
         tv_transforms.Resize(params.img_size),
         tv_transforms.CenterCrop(params.img_size),
         tv_transforms.ToTensor(),
-        normalize_transform,
+        transforms.Normalize(params.data_mean, params.data_std),
     ])
     if params.dataset is not None:
         train_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=True,
@@ -258,7 +276,8 @@ def main():
 
     # Construct attenuation
     if params.attenuation == 'jnd':
-        attenuation = attenuations.JND(preprocess=transforms.Denormalize(dataset=params.dataset)).to(params.device)
+        attenuation = attenuations.JND(
+            preprocess=transforms.Denormalize(params.data_mean, params.data_std)).to(params.device)
     else:
         attenuation = None
 
@@ -302,7 +321,7 @@ def main():
                                             scaling_w=params.scaling_w,
                                             num_bits=params.num_bits,
                                             redundancy=params.redundancy,
-                                            std=normalize_transform.std)
+                                            std=params.data_std)
     encoder_decoder = encoder_decoder.to(params.device)
 
     # Distributed training
@@ -384,6 +403,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
     header = f'Train - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger(delimiter='  ')
 
+    std = torch.tensor(params.data_std, device=params.device)
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
@@ -402,7 +422,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
         optimizer.step()
 
         # img stats
-        psnrs = metrics.psnr(x_w, x0)  # b 1
+        psnrs = metrics.psnr(x_w, x0, std=std)  # b 1
         # msg stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
@@ -427,11 +447,11 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
         if (epoch + 1) % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
-                       os.path.join(params.output_dir, f'{epoch:03d}_train_x0.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_train_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
-                       os.path.join(params.output_dir, f'{epoch:03d}_train_xw.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_train_xw.png'), nrow=8)
             save_image(params.denormalize(x_r),
-                       os.path.join(params.output_dir, f'{epoch:03d}_train_xr.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_train_xr.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
     print('Averaged train stats:', metric_logger)
@@ -447,6 +467,8 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
     encoder_decoder.eval()
     header = f'Eval - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger(delimiter='  ')
+
+    std = torch.tensor(params.data_std, device=params.device)
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
@@ -460,7 +482,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # img stats
-        psnrs = metrics.psnr(x_w, x0)  # b 1
+        psnrs = metrics.psnr(x_w, x0, std=std)  # b 1
         # msg stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
@@ -490,9 +512,9 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
 
         if (epoch + 1) % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
-                       os.path.join(params.output_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
-                       os.path.join(params.output_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
     print('Averaged eval stats:', metric_logger)
