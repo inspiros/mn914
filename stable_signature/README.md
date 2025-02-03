@@ -20,7 +20,16 @@ Instead of fine-tuning the decoder of a LDM as in the original work, we can fine
 In this case, the notions of dataset and epoch are discarded as we can simply sample from the prior distribution.
 
 <p align="center">
-<img src="../resources/stable_signature_gan_basic_pipeline.png" width="600"/>
+<img src="../resources/gan_basic_pipeline.png" height="300"/>
+</p>
+
+To use the modified pipeline:
+- Enabling **simulated attack layer**: run the script with `--attack_layer hidden`.
+- Enabling **distillation loss**: _T.B.D._
+- Enabling **critic loss** (using the discriminator): _T.B.D._
+
+<p align="center">
+<img src="../resources/gan_pipeline.png" height="300"/>
 </p>
 
 The full parameters list is to be decided.
