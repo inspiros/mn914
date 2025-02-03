@@ -1,9 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import argparse
 import json
 import os
@@ -21,6 +15,7 @@ from torchvision.utils import save_image
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hidden.ops import metrics, attacks
+from hidden.models.attack_layers import HiddenAttackLayer
 from hidden import transforms as hidden_transforms
 from stable_signature import utils
 from stable_signature.models import hidden_utils
@@ -52,6 +47,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
        help='Path to the hidden decoder for the watermarking model')
     aa('--num_bits', type=int, default=16, help='Number of bits in the watermark')
     aa('--z_dim', type=int, default=100, help='Dimension of the latent vector')
+    aa('--attack_layer', type=str, default='none', help='Attack simulation layer')
     aa('--decoder_depth', type=int, default=8, help='Depth of the decoder in the watermarking model')
     aa('--decoder_channels', type=int, default=64, help='Number of channels in the decoder of the watermarking model')
 
@@ -94,6 +90,10 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     if params.exp is not None:
         params.output_dir = os.path.join(params.output_dir, params.exp)
 
+    if params.attack_layer is not None:
+        if params.attack_layer.lower() == 'none':
+            params.attack_layer = None
+
     # Print the arguments
     if verbose:
         print('__git__:{}'.format(utils.get_sha()))
@@ -135,6 +135,14 @@ def main():
     G0 = Generator(params.img_channels, params.z_dim).to(params.device)
     G0.load_state_dict(torch.load(params.generator_ckpt, weights_only=False, map_location=params.device))
     G0.eval()
+
+    # Loads attack layer
+    if params.attack_layer is None:
+        attack_layer = nn.Identity()
+    elif params.attack_layer == 'hidden':
+        attack_layer = HiddenAttackLayer(params.img_size, mean=params.data_mean, std=params.data_std)
+    else:
+        raise ValueError('attack_layer not recognized')
 
     # Loads hidden decoder
     print(f'>>> Building HiDDeN Decoder...')
@@ -216,7 +224,8 @@ def main():
 
         # Training loop
         print(f'>>> Training...')
-        train_stats = train(optimizer, message_loss, image_loss, G0, G, msg_decoder, img_transform, key, params)
+        train_stats = train(optimizer, message_loss, image_loss,
+                            G0, G, attack_layer, msg_decoder, img_transform, key, params)
         val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, params)
         log_stats = {'key': key_str,
                      **{f'train_{k}': v for k, v in train_stats.items()},
@@ -238,7 +247,7 @@ def main():
 
 
 def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable,
-          G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
+          G0: Generator, G: Generator, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger(delimiter='  ')
@@ -246,7 +255,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 
     std = torch.tensor(params.data_std, device=params.device)
     base_lr = optimizer.param_groups[0]['lr']
-    keys = key.repeat(params.batch_size, 1)
+    m = key.repeat(params.batch_size, 1)
     for it in metric_logger.log_every(range(params.steps), params.log_freq, header):
         utils.adjust_learning_rate(optimizer, it, params.steps, params.warmup_steps, base_lr)
         # random latent vector
@@ -254,12 +263,13 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # decode latents with original and fine-tuned decoder
         x0 = G0(z)  # b z 1 1 -> b c h w
         x_w = G(z)  # b z 1 1 -> b c h w
-
+        # simulated attacks
+        x_r = attack_layer(x_w)
         # extract watermark
-        m_hat = msg_decoder(img_transform(x_w))  # b c h w -> b k
+        m_hat = msg_decoder(img_transform(x_r))  # b c h w -> b k
 
         # compute loss
-        loss_w = message_loss(m_hat, keys)
+        loss_w = message_loss(m_hat, m)
         loss_i = image_loss(x_w, x0)
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
@@ -269,7 +279,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         optimizer.zero_grad()
 
         # log stats
-        diff = (~torch.logical_xor(m_hat > 0, keys > 0))  # b k -> b k
+        diff = (~torch.logical_xor(m_hat > 0, m > 0))  # b k -> b k
         bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
         word_accs = (bit_accs == 1)  # b
         log_stats = {
@@ -306,7 +316,7 @@ def val(G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
     G.eval()
 
     std = torch.tensor(params.data_std, device=params.device)
-    keys = key.repeat(params.batch_size, 1)
+    m = key.repeat(params.batch_size, 1)
     # assuring same latent vectors generated
     generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
     for it in metric_logger.log_every(range(params.eval_steps), params.log_freq, header):
@@ -324,7 +334,7 @@ def val(G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
         for name, attack in eval_attacks.items():
             imgs_aug = attack(img_transform(x_w))
             m_hat = msg_decoder(imgs_aug)  # b c h w -> b k
-            diff = (~torch.logical_xor(m_hat > 0, keys > 0))  # b k -> b k
+            diff = (~torch.logical_xor(m_hat > 0, m > 0))  # b k -> b k
             bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
             word_accs = (bit_accs == 1)  # b
             log_stats[f'bit_acc_{name}'] = bit_accs.mean().item()
