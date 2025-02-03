@@ -357,3 +357,4 @@ wheelhouse/
 # This project
 data/
 develop/
+*outputs/
