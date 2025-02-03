@@ -1,8 +1,7 @@
+from typing import List, Optional, Type, Union
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from typing import List, Optional, Type, Union
 
 __all__ = ['conv3x3', 'BasicBlock', 'ResNet18']
 
@@ -27,11 +26,11 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(
-        self,
-        inplanes: int,
-        planes: int, 
-        stride: int = 1,
-        downsample: Optional[nn.Module] = None) -> None:
+            self,
+            inplanes: int,
+            planes: int,
+            stride: int = 1,
+            downsample: Optional[nn.Module] = None) -> None:
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -57,16 +56,16 @@ class BasicBlock(nn.Module):
         out += residual
         out = self.relu(out)
         return out
-    
+
 
 class ResNet18(nn.Module):
-    
+
     def __init__(
-        self,
-        block: Type[Union[BasicBlock]],
-        layers: List[int],
-        img_channels: int = 1,
-        num_classes: int = 10) -> None:
+            self,
+            block: Type[Union[BasicBlock]],
+            layers: List[int],
+            img_channels: int = 1,
+            num_classes: int = 10) -> None:
 
         self.inplanes = 64
         self.img_channels = img_channels
@@ -86,7 +85,7 @@ class ResNet18(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, (2. / n)**.5)
+                m.weight.data.normal_(0, (2. / n) ** .5)
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
@@ -110,7 +109,7 @@ class ResNet18(nn.Module):
             layers.append(block(self.inplanes, planes))
 
         return nn.Sequential(*layers)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
         x = self.bn1(x)

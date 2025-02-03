@@ -122,8 +122,8 @@ def main():
             optimizer.step()
 
             if not batch_idx % 100:
-                 print ('Epoch: %03d/%03d | Batch %04d/%04d | Cost: %.4f' % (
-                     epoch + 1, params.epochs, batch_idx, len(train_loader), loss))
+                print('Epoch: %03d/%03d | Batch %04d/%04d | Cost: %.4f' % (
+                    epoch + 1, params.epochs, batch_idx, len(train_loader), loss))
 
         model.eval()
         print('Epoch: %03d/%03d | Test: %.3f%%' % (
