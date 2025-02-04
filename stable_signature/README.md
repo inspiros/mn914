@@ -39,21 +39,21 @@ The full parameters list is to be decided.
 - Linux:
 ```cmd
 python finetune_gan.py mnist --num_keys 1 \
+    --data_mean [0.5] --data_std [0.5] \
     --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 \
     --steps 1000 --eval_steps 10 \
     --generator_ckpt ../ckpts/dcgan_generator_mnist.pth \
     --msg_decoder_path ../ckpts/hidden_mnist.pth \
-    --data_mean [0.5] --data_std [0.5] \
     --loss_i watson-vgg --loss_w bce
 ```
 - Windows:
 ```cmd
 python finetune_gan.py mnist --num_keys 1 `
+    --data_mean [0.5] --data_std [0.5] `
     --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 `
     --steps 1000 --eval_steps 10 `
     --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
     --msg_decoder_path ../ckpts/hidden_mnist.pth `
-    --data_mean [0.5] --data_std [0.5] `
     --loss_i watson-vgg --loss_w bce
 ```
 
