@@ -133,10 +133,10 @@ class HiddenAttackLayer(_BaseAttackLayer):
             Identity(),
             K.RandomHorizontalFlip(p=1),
         ]
-        augmentations.extend([
-            attacks.WatermarkDropout(p=0.2),
-            attacks.WatermarkCenterCropout(scale=0.5),
-        ])
+        # augmentations.extend([
+        #     attacks.WatermarkDropout(p=0.2),
+        #     attacks.WatermarkCenterCropout(scale=0.5),
+        # ])
         if p_crop > 0:
             crop1 = int(img_size * math.sqrt(0.3))
             crop2 = int(img_size * math.sqrt(0.7))

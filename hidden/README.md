@@ -193,8 +193,8 @@ The following commands resemble the one that reproduces the results in the origi
 - On Linux:
 ```cmd
 python main.py mnist \
-  --dataset MNIST --eval_freq 5 \
-  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 \
+  --dataset MNIST --data_mean (0.5) --data_std (0.5) \
+  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 --eval_freq 5 \
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
   --optimizer Lamb,lr=2e-2 \
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
@@ -204,8 +204,8 @@ python main.py mnist \
 - On Windows:
 ```cmd
 python main.py mnist `
-  --dataset MNIST --eval_freq 5 `
-  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 `
+  --dataset MNIST --data_mean (0.5) --data_std (0.5) `
+  --img_size 28 --img_channels 1 --num_bits 16 --batch_size 128 --epochs 150 --eval_freq 5 `
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
   --optimizer Lamb,lr=2e-2 `
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
@@ -218,8 +218,8 @@ python main.py mnist `
 - On Linux:
 ```cmd
 python main.py cifar10 \
-  --dataset CIFAR10 --eval_freq 5 \
-  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 \
+  --dataset CIFAR10 --data_mean (0.485, 0.456, 0.406) --data_std (0.229, 0.224, 0.225) \
+  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 --eval_freq 5 \
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
   --optimizer Lamb,lr=2e-2 \
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
@@ -229,8 +229,8 @@ python main.py cifar10 \
 - On Windows:
 ```cmd
 python main.py cifar10 `
-  --dataset CIFAR10 --eval_freq 5 `
-  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 `
+  --dataset CIFAR10 --data_mean (0.485, 0.456, 0.406) --data_std (0.229, 0.224, 0.225) `
+  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 --eval_freq 5 `
   --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
   --optimizer Lamb,lr=2e-2 `
   --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
