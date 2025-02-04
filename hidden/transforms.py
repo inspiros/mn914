@@ -46,7 +46,8 @@ class Normalize(tv_transforms.Normalize):
 
 class Denormalize(tv_transforms.Normalize):
     def __init__(self, mean, std, inplace: bool = False):
-        super().__init__((-m / s for m, s in zip(mean, std)), (1 / s for s in std), inplace=inplace)
+        super().__init__(tuple(-m / s for m, s in zip(mean, std)), tuple(1 / s for s in std),
+                         inplace=inplace)
 
     @classmethod
     def from_dataset(cls, dataset, inplace: bool = False) -> 'Denormalize':
