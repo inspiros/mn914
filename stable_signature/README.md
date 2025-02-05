@@ -44,7 +44,7 @@ python finetune_gan.py mnist --num_keys 1 \
     --steps 1000 --eval_steps 10 \
     --generator_ckpt ../ckpts/dcgan_generator_mnist.pth \
     --msg_decoder_path ../ckpts/hidden_mnist.pth \
-    --resnet18_ckpt ../ckpts/resnet18_009.pth \
+    --clf_ckpt ../ckpts/resnet18_009.pth \
     --loss_i watson-vgg --loss_w bce --loss_d kl
 ```
 - Windows:
@@ -55,7 +55,7 @@ python finetune_gan.py mnist --num_keys 1 `
     --steps 1000 --eval_steps 10 `
     --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
     --msg_decoder_path ../ckpts/hidden_mnist.pth `
-    --resnet18_ckpt ../ckpts/resnet18_009.pth `
+    --clf_ckpt ../ckpts/resnet18_009.pth `
     --loss_i watson-vgg --loss_w bce --loss_d kl
 ```
 
