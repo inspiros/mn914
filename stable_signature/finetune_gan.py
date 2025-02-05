@@ -20,6 +20,7 @@ from hidden import transforms as hidden_transforms
 from stable_signature import utils
 from stable_signature.models import hidden_utils
 from stable_signature.models.dcgan import Generator
+from stable_signature.models.resnet import ResNet18, BasicBlock
 from stable_signature.loss.loss_provider import LossProvider
 
 
@@ -45,6 +46,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
        help='Path to the checkpoint file for the Discriminator')
     aa('--msg_decoder_path', type=str, required=True,
        help='Path to the hidden decoder for the watermarking model')
+    aa('--resnet18_ckpt', type=str, required=True,
+       help='Path to the resnet18 checkpoint for computing distillation loss')
     aa('--num_bits', type=int, default=16, help='Number of bits in the watermark')
     aa('--z_dim', type=int, default=100, help='Dimension of the latent vector')
     aa('--attack_layer', type=str, default='none', help='Attack simulation layer')
@@ -59,8 +62,10 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     aa('--loss_i', type=str, default='watson-vgg',
        help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
     aa('--loss_w', type=str, default='bce', help='Type of loss for the watermark loss. Can be mse or bce')
+    aa('--loss_d', type=str, default='kl', help='Type of loss for the distillation loss. Can be kl, mse')
     aa('--lambda_i', type=float, default=1.0, help='Weight of the image loss in the total loss')
     aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss in the total loss')
+    aa('--lambda_d', type=float, default=1.0, help='Weight of the distillation loss in the total loss')
     aa('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
        help='Pretrained weights dir for image loss.')
     aa('--optimizer', type=str, default='AdamW,lr=5e-4', help='Optimizer and learning rate for training')
@@ -160,9 +165,15 @@ def main():
 
     img_transform = nn.Identity()
 
+    # Load resnet18_clf model for distillation loss
+    resnet18 = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
+                        img_channels=params.img_channels).to(params.device)
+    resnet18.load_state_dict(torch.load(params.resnet18_ckpt, weights_only=False, map_location=params.device))
+    resnet18.eval()
+
     # Create losses
     print(f'>>> Creating Losses...')
-    print(f'Losses: {params.loss_w} and {params.loss_i}...')
+    print(f'Losses: {params.loss_w}, {params.loss_i}, and {params.loss_d}...')
     if params.loss_w == 'mse':
         message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
@@ -188,6 +199,11 @@ def main():
         image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.shape[0]
     else:
         raise ValueError(f'Unknown image loss: {params.loss_i}')
+    
+    if params.loss_d == 'kl':
+        distillation_loss = nn.KLDivLoss(reduction='batchmean')
+    else:
+        raise ValueError(f'Unknown distillation loss: {params.loss_d}')
 
     # attacks
     eval_attacks = {
@@ -224,8 +240,8 @@ def main():
 
         # Training loop
         print(f'>>> Training...')
-        train_stats = train(optimizer, message_loss, image_loss,
-                            G0, G, attack_layer, msg_decoder, img_transform, key, params)
+        train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
+                            G0, G, attack_layer, msg_decoder, resnet18, img_transform, key, params)
         val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, params)
         log_stats = {'key': key_str,
                      **{f'train_{k}': v for k, v in train_stats.items()},
@@ -246,8 +262,8 @@ def main():
         print('\n')
 
 
-def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable,
-          G0: Generator, G: Generator, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
+def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
+          G0: Generator, G: Generator, attack_layer: nn.Module, msg_decoder: nn.Module, resnet18: nn.Module, img_transform,
           key: torch.Tensor, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger(delimiter='  ')
@@ -263,6 +279,11 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # decode latents with original and fine-tuned decoder
         x0 = G0(z)  # b z 1 1 -> b c h w
         x_w = G(z)  # b z 1 1 -> b c h w
+
+        # classify decoded images with resnet18 
+        logit0 = F.softmax(resnet18(x0), dim=1)
+        logit_w = F.log_softmax(resnet18(x_w), dim=1)
+
         # simulated attacks
         x_r = attack_layer(x_w)
         # extract watermark
@@ -271,7 +292,8 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # compute loss
         loss_w = message_loss(m_hat, m)
         loss_i = image_loss(x_w, x0)
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i
+        loss_d = distillation_loss(logit_w, logit0)
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_d * loss_d
 
         # optim step
         loss.backward()
@@ -287,6 +309,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
             'loss': loss.item(),
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
+            'loss_d': loss_d.item(),
             'psnr': metrics.psnr(x_w, x0, std=std).mean().item(),
             'bit_acc_avg': bit_accs.mean().item(),
             'word_acc_avg': word_accs.float().mean().item(),
