@@ -19,9 +19,11 @@ from hidden.models.attack_layers import HiddenAttackLayer
 from hidden import transforms as hidden_transforms
 from stable_signature import utils
 from stable_signature.models import hidden_utils
-from stable_signature.models.dcgan import Generator
+from stable_signature.models import dcgan
 from stable_signature.models.resnet import ResNet18, BasicBlock
+from stable_signature.loss.kl_div_softmax import KLDivSoftmaxLoss
 from stable_signature.loss.loss_provider import LossProvider
+from stable_signature.loss.matching_loss import MatchingLoss
 
 
 def parse_args(verbose: bool = True) -> argparse.Namespace:
@@ -62,7 +64,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     aa('--loss_i', type=str, default='watson-vgg',
        help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
     aa('--loss_w', type=str, default='bce', help='Type of loss for the watermark loss. Can be mse or bce')
-    aa('--loss_d', type=str, default='none', help='Type of loss for the distillation loss. Can be kl, none')
+    aa('--loss_d', type=str, default='none', help='Type of loss for the distillation loss. Can be kl, mse')
     aa('--lambda_i', type=float, default=1.0, help='Weight of the image loss in the total loss')
     aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss in the total loss')
     aa('--lambda_d', type=float, default=1.0, help='Weight of the distillation loss in the total loss')
@@ -140,7 +142,7 @@ def main():
 
     # Loads LDM auto-encoder models
     print(f'>>> Building Generator...')
-    G0 = Generator(params.img_channels, params.z_dim).to(params.device)
+    G0 = dcgan.get_generator(params.dataset, params.img_channels, params.z_dim).to(params.device)
     G0.load_state_dict(torch.load(params.generator_ckpt, weights_only=False, map_location=params.device))
     G0.eval()
 
@@ -199,19 +201,18 @@ def main():
 
     if params.loss_d is None:
         distillation_loss = None
-    elif params.loss_d == 'kl':
-        distillation_loss = nn.KLDivLoss(reduction='batchmean')
     else:
-        raise ValueError(f'Unknown distillation loss: {params.loss_d}')
-
-    if distillation_loss is not None:
         # Load resnet18_clf model for distillation loss
         F_clf = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
                             img_channels=params.img_channels).to(params.device)
         F_clf.load_state_dict(torch.load(params.clf_ckpt, weights_only=False, map_location=params.device))
         F_clf.eval()
-    else:
-        F_clf = None
+        if params.loss_d == 'kl':
+            distillation_loss = MatchingLoss(KLDivSoftmaxLoss(reduction='batchmean', dim=1), F_clf)
+        elif params.loss_d == 'mse':
+            distillation_loss = MatchingLoss(nn.MSELoss(reduction='mean'), F_clf)
+        else:
+            raise ValueError(f'Unknown distillation loss: {params.loss_d}')
 
     # attacks
     eval_attacks = {
@@ -249,7 +250,7 @@ def main():
         # Training loop
         print(f'>>> Training...')
         train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
-                            G0, G, attack_layer, msg_decoder, F_clf, img_transform, key, params)
+                            G0, G, attack_layer, msg_decoder, img_transform, key, params)
         val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, params)
         log_stats = {'key': key_str,
                      **{f'train_{k}': v for k, v in train_stats.items()},
@@ -271,7 +272,7 @@ def main():
 
 
 def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
-          G0: Generator, G: Generator, attack_layer: nn.Module, msg_decoder: nn.Module, F_clf: nn.Module, img_transform,
+          G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger(delimiter='  ')
@@ -298,9 +299,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         loss_i = image_loss(x_w, x0)
         if distillation_loss is not None:
             # distillation loss
-            logit0 = F.softmax(F_clf(x0), dim=1)
-            logit_w = F.log_softmax(F_clf(x_w), dim=1)
-            loss_d = distillation_loss(logit_w, logit0)
+            loss_d = distillation_loss(x_w, x0)
         else:
             loss_d = torch.zeros([])
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_d * loss_d
@@ -342,7 +341,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 
 
 @torch.no_grad()
-def val(G0: Generator, G: Generator, msg_decoder: nn.Module, img_transform,
+def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
         key: torch.Tensor, eval_attacks: Dict, params: argparse.Namespace):
     header = 'Eval'
     metric_logger = utils.MetricLogger(delimiter='  ')
