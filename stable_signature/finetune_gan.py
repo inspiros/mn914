@@ -48,7 +48,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
        help='Path to the checkpoint file for the Discriminator')
     aa('--msg_decoder_path', type=str, required=True,
        help='Path to the hidden decoder for the watermarking model')
-    aa('--clf_ckpt', type=str, required=True,
+    aa('--clf_ckpt', type=str, default=None,
        help='Path to the classifier checkpoint for computing distillation loss')
     aa('--num_bits', type=int, default=16, help='Number of bits in the watermark')
     aa('--z_dim', type=int, default=100, help='Dimension of the latent vector')

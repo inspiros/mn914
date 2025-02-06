@@ -74,7 +74,7 @@ python finetune_gan.py cifar10 --num_keys 1 \
 ```
 - Windows:
 ```cmd
-python finetune_gan.py mnist --num_keys 1 `
+python finetune_gan.py cifar10 --num_keys 1 `
     --dataset CIFAR10 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] `
     --img_size 32 --img_channels 3 --num_bits 16 --batch_size 128 `
     --steps 1000 --eval_steps 10 `
