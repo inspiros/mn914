@@ -15,7 +15,7 @@ from torchvision.utils import save_image
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hidden.ops import attacks
-from hidden.ops.metrics import PSNR, SSIM
+from hidden.ops.metrics import PSNR, SSIM, LPIPS
 from hidden.models.attack_layers import HiddenAttackLayer
 from hidden import transforms as hidden_transforms
 from stable_signature import utils
@@ -239,6 +239,10 @@ def main():
         'psnr': PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
         'ssim': SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
     }
+    if params.img_channels == 3:
+        metrics.update({
+            'lpips': LPIPS(net='alex').to(params.device),
+        })
 
     for ii_key in range(params.num_keys):
         # Creating key
@@ -325,8 +329,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss_d': loss_d.item(),
-            'psnr': metrics['psnr'](x_w, x0).mean().item(),
-            'ssim': metrics['ssim'](x_w, x0).mean().item(),
+            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
             'bit_acc_avg': bit_accs.mean().item(),
             'word_acc_avg': word_accs.float().mean().item(),
             'lr': optimizer.param_groups[0]['lr'],
@@ -367,8 +370,7 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
 
         log_stats = {
             'iteration': it,
-            'psnr': metrics['psnr'](x_w, x0).mean().item(),
-            'ssim': metrics['ssim'](x_w, x0).mean().item(),
+            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
         for name, attack in eval_attacks.items():
             imgs_aug = attack(img_transform(x_w))

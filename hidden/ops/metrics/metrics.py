@@ -3,10 +3,12 @@ from typing import Tuple, Optional
 import torch
 import torch.nn as nn
 
+import lpips
+
 from . import functional as F
 
 __all__ = [
-    'PSNR', 'SSIM',
+    'PSNR', 'DPSNR', 'SSIM', 'LPIPS',
 ]
 
 
@@ -40,7 +42,25 @@ class PSNR(_DenormalizedMetric):
         return F.psnr(x, y, self.mean, self.std)
 
 
+class DPSNR(_DenormalizedMetric):
+
+    def __init__(self, std: Optional[Tuple[float, ...]] = None) -> None:
+        super().__init__(None, std)
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return F.dpsnr(x, y, self.std)
+
+
 class SSIM(_DenormalizedMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return F.ssim(x, y, self.mean, self.std)
+
+
+class LPIPS(_BaseMetric):
+    def __init__(self, pretrained: bool = True, net: str = 'alex') -> None:
+        super().__init__()
+        self.lpips = lpips.LPIPS(pretrained, net)
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self.lpips(x, y)

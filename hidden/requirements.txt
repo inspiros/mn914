@@ -2,5 +2,6 @@ torch
 torchvision
 timm
 kornia
+lpips
 scikit-image
 matplotlib

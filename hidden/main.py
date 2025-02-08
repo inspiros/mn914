@@ -48,7 +48,7 @@ from hidden import models, transforms, utils
 from hidden.loss import *
 from hidden.models import attenuations, attack_layers
 from hidden.ops import attacks
-from hidden.ops.metrics import PSNR, SSIM
+from hidden.ops.metrics import PSNR, SSIM, LPIPS
 
 
 def parse_args(verbose: bool = True) -> argparse.Namespace:
@@ -317,6 +317,10 @@ def main():
         'psnr': PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
         'ssim': SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
     }
+    if params.img_channels == 3:
+        metrics.update({
+            'lpips': LPIPS(net='alex').to(params.device),
+        })
 
     # Create encoder/decoder
     encoder_decoder = models.EncoderDecoder(encoder=encoder,
@@ -438,8 +442,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss': loss.item(),
-            'psnr': metrics['psnr'](x_w, x0).mean().item(),
-            'ssim': metrics['ssim'](x_w, x0).mean().item(),
+            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
             'lr': optimizer.param_groups[0]['lr'],
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
@@ -496,8 +499,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss': loss.item(),
-            'psnr': metrics['psnr'](x_w, x0).mean().item(),
-            'ssim': metrics['ssim'](x_w, x0).mean().item(),
+            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),
