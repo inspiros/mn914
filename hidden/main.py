@@ -47,7 +47,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hidden import models, transforms, utils
 from hidden.loss import *
 from hidden.models import attenuations, attack_layers
-from hidden.ops import attacks, metrics
+from hidden.ops import attacks
+from hidden.ops.metrics import PSNR, SSIM
 
 
 def parse_args(verbose: bool = True) -> argparse.Namespace:
@@ -311,6 +312,12 @@ def main():
     }
     eval_attacks = {k: attack_layers.wrap_attack(v, False) for k, v in eval_attacks.items()}
 
+    # Construct metrics
+    metrics = {
+        'psnr': PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
+        'ssim': SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+    }
+
     # Create encoder/decoder
     encoder_decoder = models.EncoderDecoder(encoder=encoder,
                                             attenuation=attenuation,
@@ -368,11 +375,11 @@ def main():
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
 
-        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, scheduler, epoch, params)
+        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, scheduler, metrics, epoch, params)
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()}, 'epoch': epoch}
 
         if (epoch + 1) % params.eval_freq == 0:
-            val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, eval_attacks, params)
+            val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, eval_attacks, metrics, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
 
         save_dict = {
@@ -393,7 +400,7 @@ def main():
 
 
 # noinspection DuplicatedCode
-def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, scheduler, epoch, params):
+def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, scheduler, metrics, epoch, params):
     r"""
     One epoch of training.
     """
@@ -403,7 +410,6 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
     header = f'Train - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger(delimiter='  ')
 
-    std = torch.tensor(params.data_std, device=params.device)
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
@@ -421,9 +427,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
         loss.backward()
         optimizer.step()
 
-        # img stats
-        psnrs = metrics.psnr(x_w, x0, std=std)  # b 1
-        # msg stats
+        # stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
@@ -434,7 +438,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss': loss.item(),
-            'psnr_avg': torch.mean(psnrs).item(),
+            'psnr': metrics['psnr'](x_w, x0).mean().item(),
+            'ssim': metrics['ssim'](x_w, x0).mean().item(),
             'lr': optimizer.param_groups[0]['lr'],
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
@@ -460,7 +465,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
 # noinspection DuplicatedCode
 @torch.no_grad()
-def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_attacks, params):
+def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_attacks, metrics, params):
     r"""
     One epoch of eval.
     """
@@ -468,7 +473,6 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
     header = f'Eval - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger(delimiter='  ')
 
-    std = torch.tensor(params.data_std, device=params.device)
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
@@ -481,9 +485,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
         loss_i = image_loss(x_w, x0, loss_type=params.loss_i)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
-        # img stats
-        psnrs = metrics.psnr(x_w, x0, std=std)  # b 1
-        # msg stats
+        # stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
@@ -494,7 +496,8 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss': loss.item(),
-            'psnr_avg': torch.mean(psnrs).item(),
+            'psnr': metrics['psnr'](x_w, x0).mean().item(),
+            'ssim': metrics['ssim'](x_w, x0).mean().item(),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),

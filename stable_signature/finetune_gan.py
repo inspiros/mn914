@@ -14,7 +14,8 @@ from torchvision.utils import save_image
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hidden.ops import metrics, attacks
+from hidden.ops import attacks
+from hidden.ops.metrics import PSNR, SSIM
 from hidden.models.attack_layers import HiddenAttackLayer
 from hidden import transforms as hidden_transforms
 from stable_signature import utils
@@ -233,6 +234,12 @@ def main():
             50, mean=params.data_mean, std=params.data_std).to(params.device),
     }
 
+    # Construct metrics
+    metrics = {
+        'psnr': PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
+        'ssim': SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+    }
+
     for ii_key in range(params.num_keys):
         # Creating key
         print(f'\n>>> Creating key with {params.num_bits} bits...')
@@ -250,8 +257,8 @@ def main():
         # Training loop
         print(f'>>> Training...')
         train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
-                            G0, G, attack_layer, msg_decoder, img_transform, key, params)
-        val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, params)
+                            G0, G, attack_layer, msg_decoder, img_transform, key, metrics, params)
+        val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, params)
         log_stats = {'key': key_str,
                      **{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'val_{k}': v for k, v in val_stats.items()},
@@ -273,12 +280,11 @@ def main():
 
 def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
           G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
-          key: torch.Tensor, params: argparse.Namespace):
+          key: torch.Tensor, metrics: Dict, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger(delimiter='  ')
     G.train()
 
-    std = torch.tensor(params.data_std, device=params.device)
     base_lr = optimizer.param_groups[0]['lr']
     m = key.repeat(params.batch_size, 1)
     for it in metric_logger.log_every(range(params.steps), params.log_freq, header):
@@ -319,7 +325,8 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss_d': loss_d.item(),
-            'psnr': metrics.psnr(x_w, x0, std=std).mean().item(),
+            'psnr': metrics['psnr'](x_w, x0).mean().item(),
+            'ssim': metrics['ssim'](x_w, x0).mean().item(),
             'bit_acc_avg': bit_accs.mean().item(),
             'word_acc_avg': word_accs.float().mean().item(),
             'lr': optimizer.param_groups[0]['lr'],
@@ -342,12 +349,11 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 
 @torch.no_grad()
 def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
-        key: torch.Tensor, eval_attacks: Dict, params: argparse.Namespace):
+        key: torch.Tensor, eval_attacks: Dict, metrics: Dict, params: argparse.Namespace):
     header = 'Eval'
     metric_logger = utils.MetricLogger(delimiter='  ')
     G.eval()
 
-    std = torch.tensor(params.data_std, device=params.device)
     m = key.repeat(params.batch_size, 1)
     # assuring same latent vectors generated
     generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
@@ -361,7 +367,8 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
 
         log_stats = {
             'iteration': it,
-            'psnr': metrics.psnr(x_w, x0, std=std).mean().item(),
+            'psnr': metrics['psnr'](x_w, x0).mean().item(),
+            'ssim': metrics['ssim'](x_w, x0).mean().item(),
         }
         for name, attack in eval_attacks.items():
             imgs_aug = attack(img_transform(x_w))

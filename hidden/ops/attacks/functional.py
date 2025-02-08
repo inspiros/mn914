@@ -11,6 +11,7 @@ __all__ = [
     'InterpolationMode',
     'normalize_img',
     'denormalize_img',
+    'to_tensor_img',
     'round_pixel',
     'clamp_pixel',
     'project_linf',
@@ -48,6 +49,17 @@ def denormalize_img(x: torch.Tensor,
     if mean is None:
         return x
     return (x * std.view(-1, 1, 1)) + mean.view(-1, 1, 1)
+
+
+def to_tensor_img(x: torch.Tensor,
+                  mean: Optional[torch.Tensor] = None,
+                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
+    r""" Convert tensor to Tensor Image """
+    if (mean is None) ^ (std is None):
+        raise ValueError('Both mean and std must be specified')
+    x_pixel = 255 * denormalize_img(x, mean=mean, std=std)
+    y_pixel = torch.round(x_pixel).clamp(0, 255)
+    return y_pixel
 
 
 def round_pixel(x: torch.Tensor,
