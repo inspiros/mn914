@@ -44,3 +44,14 @@ mn914/
 └───stable_signature/    <== Stable Signature submodule
 └───resources/           <== Where we store resources (figures, etc.)
 ```
+
+## Development
+
+Notes for developers.
+
+#### How to purge file from history
+
+```cmd
+git filter-branch -f --tree-filter 'rm -f <path_to_file>' HEAD
+git push origin --force --all
+```
