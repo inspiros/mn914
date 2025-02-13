@@ -41,6 +41,8 @@ def parse_args():
                         help='Number of image channels.')
     parser.add_argument('--img_size', type=int, default=28,
                         help='the height / width of the input image to network')
+    parser.add_argument('--num_classes', type=int, default=10,
+                        help='number of classes in dataset')
     parser.add_argument('--epochs', type=int, default=100,
                         help='number of epochs to train for')
     parser.add_argument('--lr', type=float, default=0.001,
@@ -99,7 +101,8 @@ def main():
     # model
     model = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
                      img_channels=params.img_channels,
-                     num_classes=len(dataset_cls.classes)).to(device)
+                     num_classes=params.num_classes).to(device)
+    
     if params.net != '':
         model.load_state_dict(torch.load(params.net))
 

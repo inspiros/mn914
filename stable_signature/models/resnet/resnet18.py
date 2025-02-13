@@ -121,9 +121,6 @@ class ResNet18(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        if self.img_channels != 1:
-            x = self.avgpool(x)
-
         x = x.view(x.size(0), -1)
         logits = self.fc(x)
         return logits
