@@ -69,6 +69,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
        help='Output directory for logs and images (Default: outputs)')
     aa('--data_mean', type=utils.tuple_inst(float), default=None)
     aa('--data_std', type=utils.tuple_inst(float), default=None)
+    aa('--eval_only', type=utils.bool_inst, default=False)
 
     group = parser.add_argument_group('Marking parameters')
     aa('--num_bits', type=int, default=32, help='Number of bits of the watermark (Default: 32)')
@@ -371,6 +372,15 @@ def main():
     # create output dir
     os.makedirs(params.output_dir, exist_ok=True)
 
+    if params.eval_only:
+        print('evaluating...')
+        val_stats = eval_one_epoch(encoder_decoder, val_loader, start_epoch, eval_attacks, metrics, params)
+        log_stats = {'epoch': start_epoch, **{f'val_{k}': v for k, v in val_stats.items()}}
+        if utils.is_main_process():
+            with (Path(params.output_dir) / 'log.txt').open('a') as f:
+                f.write(json.dumps(log_stats) + '\n')
+        exit()
+
     print('training...')
     start_time = time.time()
     best_bit_acc = 0
@@ -380,7 +390,7 @@ def main():
             val_loader.sampler.set_epoch(epoch)
 
         train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, scheduler, metrics, epoch, params)
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()}, 'epoch': epoch}
+        log_stats = {'epoch': epoch, **{f'train_{k}': v for k, v in train_stats.items()}}
 
         if (epoch + 1) % params.eval_freq == 0:
             val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, eval_attacks, metrics, params)
@@ -515,7 +525,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if (epoch + 1) % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
+        if (params.eval_only or (epoch + 1) % params.saveimg_freq == 0) and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),

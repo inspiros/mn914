@@ -8,6 +8,7 @@ from ..attacks import functional as F
 
 __all__ = [
     'psnr',
+    'dpsnr',
     'ssim',
 ]
 
