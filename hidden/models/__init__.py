@@ -1,3 +1,4 @@
+from .ae import *
 from .dvmark import *
 from .encoder_decoder import *
 from .hidden import *

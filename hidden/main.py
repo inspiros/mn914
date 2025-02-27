@@ -254,6 +254,12 @@ def main():
             img_size=params.img_size, patch_size=16, init_values=None,
             embed_dim=params.encoder_channels, depth=params.encoder_depth,
             num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
+    elif params.encoder == 'ae':
+        encoder = models.AEStyleEncoder(
+            num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
+    elif params.encoder == 'unet':
+        encoder = models.UNetStyleEncoder(
+            num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
     else:
         raise ValueError('Unknown encoder type')
     print('\nencoder: \n', encoder)

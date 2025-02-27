@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from ._conv import ConvBNRelu
+from ._conv import ConvBNRelu2d
 
 __all__ = ['DvmarkEncoder']
 
@@ -14,17 +14,17 @@ class DvmarkEncoder(nn.Module):
     def __init__(self, num_blocks, num_bits, channels, in_channels=3, last_tanh=True):
         super(DvmarkEncoder, self).__init__()
 
-        transform_layers = [ConvBNRelu(in_channels, channels)]
+        transform_layers = [ConvBNRelu2d(in_channels, channels)]
         for _ in range(num_blocks - 1):
-            layer = ConvBNRelu(channels, channels)
+            layer = ConvBNRelu2d(channels, channels)
             transform_layers.append(layer)
         self.transform_layers = nn.Sequential(*transform_layers)
 
         # conv layers for original scale
         num_blocks_scale1 = 3
-        scale1_layers = [ConvBNRelu(channels + num_bits, channels * 2)]
+        scale1_layers = [ConvBNRelu2d(channels + num_bits, channels * 2)]
         for _ in range(num_blocks_scale1 - 1):
-            layer = ConvBNRelu(channels * 2, channels * 2)
+            layer = ConvBNRelu2d(channels * 2, channels * 2)
             scale1_layers.append(layer)
         self.scale1_layers = nn.Sequential(*scale1_layers)
 
@@ -33,9 +33,9 @@ class DvmarkEncoder(nn.Module):
 
         # conv layers for downsampled
         num_blocks_scale2 = 3
-        scale2_layers = [ConvBNRelu(channels * 2 + num_bits, channels * 4), ConvBNRelu(channels * 4, channels * 2)]
+        scale2_layers = [ConvBNRelu2d(channels * 2 + num_bits, channels * 4), ConvBNRelu2d(channels * 4, channels * 2)]
         for _ in range(num_blocks_scale2 - 2):
-            layer = ConvBNRelu(channels * 2, channels * 2)
+            layer = ConvBNRelu2d(channels * 2, channels * 2)
             scale2_layers.append(layer)
         self.scale2_layers = nn.Sequential(*scale2_layers)
 

@@ -1,21 +1,79 @@
+from typing import Union
+
+import torch
 import torch.nn as nn
 
-__all__ = ['ConvBNRelu']
+__all__ = ['ConvBNRelu2d', 'ConvTransposeBNRelu2d']
 
 
-class ConvBNRelu(nn.Module):
+def _get_activation(name: str, *args, **kwargs) -> nn.Module:
+    if name == 'relu':
+        return nn.ReLU(*args, **kwargs)
+    elif name == 'leaky_relu':
+        return nn.LeakyReLU(*args, **kwargs)
+    elif name == 'gelu':
+        return nn.GELU(*args, **kwargs)
+    elif name == 'hardswish':
+        return nn.Hardswish(*args, **kwargs)
+    elif name == 'mish':
+        return nn.Mish(*args, **kwargs)
+    else:
+        raise ValueError(f'Unknown activation name: {name}')
+
+
+class ConvBNRelu2d(nn.Module):
     """
-    Building block used in HiDDeN network. Is a sequence of Convolution, Batch Normalization, and ReLU activation
+    Sequence of Convolution, Batch Normalization, and ReLU activation
     """
 
-    def __init__(self, in_channels, out_channels):
-        super(ConvBNRelu, self).__init__()
+    def __init__(self, in_channels: int, out_channels: int,
+                 kernel_size: int = 3, stride: int = 1, padding: int = 1,
+                 dilation: int = 1, groups: int = 1, bias: bool = True,
+                 activation: Union[str, nn.Module] = 'gelu'):
+        super(ConvBNRelu2d, self).__init__()
 
         self.layers = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels, out_channels,
+                      kernel_size=kernel_size, stride=stride, padding=padding,
+                      dilation=dilation, groups=groups, bias=bias),
             nn.BatchNorm2d(out_channels, eps=1e-3),
-            nn.GELU()
         )
+        if isinstance(activation, nn.Module):
+            self.layers.append(activation)
+        else:
+            act = _get_activation(activation)
+            if hasattr(act, 'inplace'):
+                act.inplace = True
+            self.layers.append(act)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.layers(x)
+
+
+class ConvTransposeBNRelu2d(nn.Module):
+    """
+    Sequence of Transposed Convolution, Batch Normalization, and ReLU activation
+    """
+
+    def __init__(self, in_channels: int, out_channels: int,
+                 kernel_size: int = 3, stride: int = 1, padding: int = 1, output_padding: int = 0,
+                 dilation: int = 1, groups: int = 1, bias: bool = True,
+                 activation: Union[str, nn.Module] = 'gelu'):
+        super(ConvTransposeBNRelu2d, self).__init__()
+
+        self.layers = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, out_channels,
+                               kernel_size=kernel_size, stride=stride, padding=padding, output_padding=output_padding,
+                               dilation=dilation, groups=groups, bias=bias),
+            nn.BatchNorm2d(out_channels, eps=1e-3),
+        )
+        if isinstance(activation, nn.Module):
+            self.layers.append(activation)
+        else:
+            act = _get_activation(activation)
+            if hasattr(act, 'inplace'):
+                act.inplace = True
+            self.layers.append(act)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layers(x)

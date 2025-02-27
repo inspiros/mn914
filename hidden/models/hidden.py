@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from ._conv import ConvBNRelu
+from ._conv import ConvBNRelu2d
 
 
 class HiddenEncoder(nn.Module):
@@ -11,14 +11,14 @@ class HiddenEncoder(nn.Module):
 
     def __init__(self, num_blocks: int, num_bits: int, channels: int, in_channels: int = 3, last_tanh: bool = True):
         super(HiddenEncoder, self).__init__()
-        layers = [ConvBNRelu(in_channels, channels)]
+        layers = [ConvBNRelu2d(in_channels, channels)]
 
         for _ in range(num_blocks - 1):
-            layer = ConvBNRelu(channels, channels)
+            layer = ConvBNRelu2d(channels, channels)
             layers.append(layer)
 
         self.conv_bns = nn.Sequential(*layers)
-        self.after_concat_layer = ConvBNRelu(channels + in_channels + num_bits, channels)
+        self.after_concat_layer = ConvBNRelu2d(channels + in_channels + num_bits, channels)
 
         self.final_layer = nn.Conv2d(channels, in_channels, kernel_size=1)
 
@@ -52,11 +52,11 @@ class HiddenDecoder(nn.Module):
     def __init__(self, num_blocks: int, num_bits: int, channels: int, in_channels: int = 3):
         super(HiddenDecoder, self).__init__()
 
-        layers = [ConvBNRelu(in_channels, channels)]
+        layers = [ConvBNRelu2d(in_channels, channels)]
         for _ in range(num_blocks - 1):
-            layers.append(ConvBNRelu(channels, channels))
+            layers.append(ConvBNRelu2d(channels, channels))
 
-        layers.append(ConvBNRelu(channels, num_bits))
+        layers.append(ConvBNRelu2d(channels, num_bits))
         layers.append(nn.AdaptiveAvgPool2d(output_size=(1, 1)))
         self.layers = nn.Sequential(*layers)
 
