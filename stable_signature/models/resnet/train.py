@@ -2,7 +2,7 @@
 Train script for ResNet18 model on MNIST dataset.
 
 Usage:
-    python train.py --dataset mnist --data_mean [0.5] --data_std [0.5] --img_size 28 --epochs 4
+    python train.py --dataset cifar10 --model resnet18 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] --img_size 32 --epochs 35 --img_channels 3 --device cuda:0
 
 Reference: https://raw.githubusercontent.com/pytorch/examples/master/dcgan/main.py
 """
@@ -19,7 +19,7 @@ import torchvision.transforms as transforms
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from stable_signature.models.resnet.resnet18 import ResNet18, BasicBlock
+from stable_signature.models.resnet.resnet18 import ResNet18, Resnet50, BasicBlock, Bottleneck
 from stable_signature.utils import tuple_inst
 
 
@@ -45,6 +45,8 @@ def parse_args():
                         help='number of classes in dataset')
     parser.add_argument('--epochs', type=int, default=100,
                         help='number of epochs to train for')
+    parser.add_argument('--model', required=True,
+                        help='resnet18 | resnet50')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='learning rate, default=0.001')
     parser.add_argument('--device', default='cuda:0',
@@ -100,10 +102,15 @@ def main():
         test_dataset, batch_size=params.batch_size, shuffle=False, num_workers=int(params.workers))
 
     # model
-    model = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
-                     img_channels=params.img_channels,
-                     num_classes=params.num_classes).to(device)
-
+    if params.model == 'resnet18':
+        model = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
+                        img_channels=params.img_channels,
+                        num_classes=params.num_classes).to(device)
+    else:
+        model = Resnet50(block=Bottleneck, layers=[3, 4, 6, 3],
+                        img_channels=params.img_channels,
+                        num_classes=params.num_classes).to(device)
+    
     if params.net != '':
         model.load_state_dict(torch.load(params.net))
 
@@ -112,6 +119,7 @@ def main():
     # optim
     optimizer = torch.optim.Adam(model.parameters(), lr=params.lr)
 
+    os.makedirs(f'{params.outf}/{params.dataset}/{params.model}', exist_ok=True)
     # train loop
     for epoch in range(params.epochs):
         model.train()
@@ -133,8 +141,8 @@ def main():
         print(f'[Epoch: {epoch + 1:03d}/{params.epochs:03d}]'
               f' test_acc={eval_loop(model, test_loader, device=device):.3f}')
 
-        if epoch % params.save_freq == 0:
-            torch.save(model.state_dict(), f'{params.outf}/resnet18_{epoch:03d}.pth')
+        # do checkpointing
+        torch.save(model.state_dict(), f'{params.outf}/{params.dataset}/{params.model}/{params.model}_{epoch:03d}.pth')
 
 
 @torch.no_grad()
