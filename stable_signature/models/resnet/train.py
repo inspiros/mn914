@@ -53,6 +53,8 @@ def parse_args():
                         help='path to net (to continue training)')
     parser.add_argument('--outf', default='outputs',
                         help='folder to output images and model checkpoints')
+    parser.add_argument('--save_freq', type=int, default=1,
+                        help='save frequency (epochs)')
     parser.add_argument('--manual_seed', type=int, default=None,
                         help='manual seed')
 
@@ -66,9 +68,8 @@ def main():
     device = torch.device(params.device)
     os.makedirs(params.outf, exist_ok=True)
 
-    if params.manual_seed is None:
-        params.manual_seed = random.randint(1, 10000)
-    print("Random Seed: ", params.manual_seed)
+    if params.manual_seed is not None:
+        print('Random Seed: ', params.manual_seed)
     random.seed(params.manual_seed)
     torch.manual_seed(params.manual_seed)
     if device.type.startswith('cuda'):
@@ -102,7 +103,7 @@ def main():
     model = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
                      img_channels=params.img_channels,
                      num_classes=params.num_classes).to(device)
-    
+
     if params.net != '':
         model.load_state_dict(torch.load(params.net))
 
@@ -114,26 +115,26 @@ def main():
     # train loop
     for epoch in range(params.epochs):
         model.train()
-        for batch_idx, (features, targets) in enumerate(train_loader):
+        for batch_idx, (X, y) in enumerate(train_loader):
             optimizer.zero_grad()
-            features = features.to(device)
-            targets = targets.to(device)
+            X = X.to(device)
+            y = y.to(device)
 
-            logits = model(features)
-            loss = criterion(logits, targets)
+            logits = model(X)
+            loss = criterion(logits, y)
             loss.backward()
             optimizer.step()
 
             if not batch_idx % 100:
-                print('Epoch: %03d/%03d | Batch %04d/%04d | Cost: %.4f' % (
-                    epoch + 1, params.epochs, batch_idx, len(train_loader), loss))
+                print(f'[Epoch {epoch + 1:03d}/{params.epochs:03d} - {batch_idx:04d}/{len(train_loader):04d}]'
+                      f' loss={loss:.4f}')
 
         model.eval()
-        print('Epoch: %03d/%03d | Test: %.3f%%' % (
-            epoch + 1, params.epochs, eval_loop(model, test_loader, device=device)))
+        print(f'[Epoch: {epoch + 1:03d}/{params.epochs:03d}]'
+              f' test_acc={eval_loop(model, test_loader, device=device):.3f}')
 
-        # do checkpointing
-        torch.save(model.state_dict(), f'{params.outf}/resnet18_{epoch:03d}.pth')
+        if epoch % params.save_freq == 0:
+            torch.save(model.state_dict(), f'{params.outf}/resnet18_{epoch:03d}.pth')
 
 
 @torch.no_grad()
