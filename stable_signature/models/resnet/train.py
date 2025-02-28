@@ -70,10 +70,10 @@ def main():
 
     if params.manual_seed is not None:
         print('Random Seed: ', params.manual_seed)
-    random.seed(params.manual_seed)
-    torch.manual_seed(params.manual_seed)
-    if device.type.startswith('cuda'):
-        torch.cuda.manual_seed(params.manual_seed)
+        random.seed(params.manual_seed)
+        torch.manual_seed(params.manual_seed)
+        if device.type.startswith('cuda'):
+            torch.cuda.manual_seed(params.manual_seed)
 
     # dataset & data loader
     dataset_cls = getattr(datasets, params.dataset.upper())
