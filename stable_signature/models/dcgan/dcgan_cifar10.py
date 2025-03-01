@@ -146,18 +146,12 @@ def main():
         if device.type.startswith('cuda'):
             torch.cuda.manual_seed(params.manual_seed)
 
-    # cudnn.benchmark = True
-
-    # if torch.cuda.is_available() and not params.device:
-    #     print("WARNING: You have a CUDA device, so you should probably run with --cuda")
-
     dataset = dset.CIFAR10(root=params.dataroot, download=True,
                            transform=transforms.Compose([
                                transforms.Resize(params.img_size),
                                transforms.ToTensor(),
                                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                            ]))
-    # nc = 3
     assert dataset
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=params.batch_size,
                                              shuffle=True, num_workers=int(params.workers))
@@ -226,10 +220,11 @@ def main():
             D_G_z2 = output.mean().item()
             optimG.step()
 
-            print(f'[{epoch}/{params.epochs}][{i}/{len(dataloader)}] '
+            if i % 100 == 0:
+                print(f'[{epoch}/{params.epochs}][{i}/{len(dataloader)}] '
                   f'Loss_D: {errD.item():.4f} Loss_G: {errG.item():.4f} '
                   f'D(x): {D_x:.4f} D(G(z)): {D_G_z1:.4f} / {D_G_z2:.4f}')
-            if i % 100 == 0:
+                
                 vutils.save_image(X_real,
                                   f'{params.outf}/real_samples.png',
                                   normalize=True)
