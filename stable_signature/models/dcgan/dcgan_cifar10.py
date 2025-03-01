@@ -1,10 +1,12 @@
 """
 Usage:
-    python dcgan.py --dataset cifar10 --dataroot /scratch/users/vision/yu_dl/raaz.rsk/data/cifar10 --imageSize 32 --cuda --outf out_cifar --manualSeed 13 --niter 100
+    python dcgan_cifar10.py --dataset cifar10 --img_size 32 --manual_seed 0 --niter 100
 """
 import argparse
 import os
 import random
+import sys
+
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -14,6 +16,8 @@ import torch.utils.data
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 __all__ = ['Generator', 'Discriminator']
 
@@ -74,109 +78,128 @@ class Discriminator(nn.Module):
     def forward(self, input):
         output = self.main(input)
         return output.view(-1, 1).squeeze(1)
+    
+
+def init_weights(m: nn.Module) -> None:
+    r'''custom weights initialization called on netG and netD'''
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
 
 
-if __name__ == '__main__':
-
+def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', required=True, help='cifar10 | lsun | mnist |imagenet | folder | lfw | fake')
-    parser.add_argument('--dataroot', required=True, help='path to dataset')
-    parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
-    parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
-    parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
-    parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+    parser.add_argument('--dataset', required=True,
+                        help='cifar10 | lsun | mnist |imagenet | folder | lfw | fake')
+    parser.add_argument('--dataroot', default=os.path.join(project_root, 'data'),
+                        help='path to dataset')
+    parser.add_argument('--workers', type=int,
+                        help='number of data loading workers', default=2)
+    parser.add_argument('--batch_size', type=int, default=64,
+                        help='input batch size')
+    parser.add_argument('--img_size', type=int, default=32,
+                        help='the height / width of the input image to network')
+    parser.add_argument('--nz', type=int, default=100,
+                        help='size of the latent z vector')
     parser.add_argument('--ngf', type=int, default=64)
     parser.add_argument('--ndf', type=int, default=64)
-    parser.add_argument('--niter', type=int, default=25, help='number of epochs to train for')
-    parser.add_argument('--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
-    parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
-    parser.add_argument('--cuda', action='store_true', help='enables cuda')
-    parser.add_argument('--netG', default='', help="path to netG (to continue training)")
-    parser.add_argument('--netD', default='', help="path to netD (to continue training)")
-    parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
-    parser.add_argument('--manualSeed', type=int, help='manual seed')
+    parser.add_argument('--epochs', type=int, default=25,
+                        help='number of epochs to train for')
+    parser.add_argument('--lr', type=float, default=0.0002,
+                        help='learning rate, default=0.0002')
+    parser.add_argument('--beta1', type=float, default=0.5,
+                        help='beta1 for adam. default=0.5')
+    parser.add_argument('--device', default='cuda:0',
+                        help='device to use for training')
+    parser.add_argument('--netG', default='',
+                        help="path to netG (to continue training)")
+    parser.add_argument('--netD', default='',
+                        help="path to netD (to continue training)")
+    parser.add_argument('--outf', default='outputs',
+                        help='folder to output images and model checkpoints')
+    parser.add_argument('--manual_seed', type=int,
+                        help='manual seed')
 
-    opt = parser.parse_args()
-    print(opt)
+    params = parser.parse_args()
+    print(params)
+    return params
+
+
+def main():
+    params = parse_args()
+    device = torch.device(params.device)
 
     try:
-        os.makedirs(opt.outf)
+        os.makedirs(params.outf)
     except OSError:
         pass
 
-    if opt.manualSeed is None:
-        opt.manualSeed = random.randint(1, 10000)
-    print("Random Seed: ", opt.manualSeed)
-    random.seed(opt.manualSeed)
-    torch.manual_seed(opt.manualSeed)
+    if params.manual_seed is not None:
+        print("Random Seed: ", params.manual_seed)
+        random.seed(params.manual_seed)
+        torch.manual_seed(params.manual_seed)
+        if device.type.startswith('cuda'):
+            torch.cuda.manual_seed(params.manual_seed)
 
-    cudnn.benchmark = True
+    # cudnn.benchmark = True
 
-    if torch.cuda.is_available() and not opt.cuda:
-        print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+    # if torch.cuda.is_available() and not params.device:
+    #     print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
-    dataset = dset.CIFAR10(root=opt.dataroot, download=True,
+    dataset = dset.CIFAR10(root=params.dataroot, download=True,
                            transform=transforms.Compose([
-                               transforms.Resize(opt.imageSize),
+                               transforms.Resize(params.img_size),
                                transforms.ToTensor(),
-                               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                               transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                            ]))
-    nc = 3
-
+    # nc = 3
     assert dataset
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize,
-                                             shuffle=True, num_workers=int(opt.workers))
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=params.batch_size,
+                                             shuffle=True, num_workers=int(params.workers))
 
-    device = torch.device("cuda:0" if opt.cuda else "cpu")
-    nz = int(opt.nz)
-    ngf = int(opt.ngf)
-    ndf = int(opt.ndf)
-
-
-    # custom weights initialization called on netG and netD
-    def weights_init(m):
-        classname = m.__class__.__name__
-        if classname.find('Conv') != -1:
-            m.weight.data.normal_(0.0, 0.02)
-        elif classname.find('BatchNorm') != -1:
-            m.weight.data.normal_(1.0, 0.02)
-            m.bias.data.fill_(0)
-
+    nz = int(params.nz)
+    ngf = int(params.ngf)
+    ndf = int(params.ndf)
 
     netG = Generator().to(device)
-    netG.apply(weights_init)
-    if opt.netG != '':
-        netG.load_state_dict(torch.load(opt.netG))
+    netG.apply(init_weights)
+    if params.netG != '':
+        netG.load_state_dict(torch.load(params.netG))
     print(netG)
 
     netD = Discriminator().to(device)
-    netD.apply(weights_init)
-    if opt.netD != '':
-        netD.load_state_dict(torch.load(opt.netD))
+    netD.apply(init_weights)
+    if params.netD != '':
+        netD.load_state_dict(torch.load(params.netD))
     print(netD)
 
     criterion = nn.BCELoss()
 
-    fixed_noise = torch.randn(opt.batchSize, nz, 1, 1, device=device)
+    fixed_noise = torch.randn(params.batch_size, nz, 1, 1, device=device)
     real_label = 1
     fake_label = 0
 
-    # setup optimizer
-    optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-    optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+    # setup paramsimizer
+    optimD = optim.Adam(netD.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
+    optimG = optim.Adam(netG.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
 
-    for epoch in range(opt.niter):
-        for i, data in enumerate(dataloader, 0):
+    for epoch in range(params.epochs):
+        for i, (X, _) in enumerate(dataloader, 0):
+            batch_size = X.size(0)
             ############################
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
             ###########################
             # train with real
             netD.zero_grad()
-            real_cpu = data[0].to(device)
-            batch_size = real_cpu.size(0)
-            label = torch.full((batch_size,), real_label, device=device)
+            X_real = X.to(device)
+            label = torch.full((batch_size,), real_label, device=device).float()
 
-            output = netD(real_cpu)
+            output = netD(X_real)
             errD_real = criterion(output, label)
             errD_real.backward()
             D_x = output.mean().item()
@@ -190,7 +213,7 @@ if __name__ == '__main__':
             errD_fake.backward()
             D_G_z1 = output.mean().item()
             errD = errD_real + errD_fake
-            optimizerD.step()
+            optimD.step()
 
             ############################
             # (2) Update G network: maximize log(D(G(z)))
@@ -201,20 +224,24 @@ if __name__ == '__main__':
             errG = criterion(output, label)
             errG.backward()
             D_G_z2 = output.mean().item()
-            optimizerG.step()
+            optimG.step()
 
-            print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
-                  % (epoch, opt.niter, i, len(dataloader),
-                     errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
+            print(f'[{epoch}/{params.epochs}][{i}/{len(dataloader)}] '
+                  f'Loss_D: {errD.item():.4f} Loss_G: {errG.item():.4f} '
+                  f'D(x): {D_x:.4f} D(G(z)): {D_G_z1:.4f} / {D_G_z2:.4f}')
             if i % 100 == 0:
-                vutils.save_image(real_cpu,
-                                  '%s/real_samples.png' % opt.outf,
+                vutils.save_image(X_real,
+                                  f'{params.outf}/real_samples.png',
                                   normalize=True)
                 fake = netG(fixed_noise)
                 vutils.save_image(fake.detach(),
-                                  '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch),
+                                  f'{params.outf}/fake_samples_{epoch:03d}.png',
                                   normalize=True)
 
         # do checkpointing
-        torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
-        torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % (opt.outf, epoch))
+        torch.save(netG.state_dict(), f'{params.outf}/netG_{epoch:03d}.pth')
+        torch.save(netD.state_dict(), f'{params.outf}/netD_{epoch:03d}.pth')
+
+
+if __name__ == '__main__':
+    main()
