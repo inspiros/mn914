@@ -93,7 +93,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     group = parser.add_argument_group('Training parameters')
     aa('--bn_momentum', type=float, default=0.01, help='Momentum of the batch normalization layer. (Default: 0.1)')
-    aa('--eval_freq', default=1, type=int)
+    aa('--eval_freq', default=10, type=int)
+    aa('--log_train_metrics', type=utils.bool_inst, default=False)
     aa('--saveckp_freq', default=100, type=int)
     aa('--saveimg_freq', default=10, type=int)
     aa('--resume_from', default=None, type=str, help='Checkpoint path to resume from.')
@@ -309,10 +310,10 @@ def main():
 
     print(f'Losses: {params.loss_w} and {params.loss_i}')
     if params.loss_w == 'mse':
-        message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
+        message_loss = lambda m_hat, m: torch.mean((m_hat * params.loss_margin - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
-        message_loss = lambda m_hat, m, temp=10.0: torch.nn.functional.binary_cross_entropy_with_logits(
-            m_hat * temp, m, reduction='mean')
+        message_loss = lambda m_hat, m: torch.nn.functional.binary_cross_entropy_with_logits(
+            m_hat * params.loss_margin, m, reduction='mean')
     else:
         raise ValueError(f'Unknown message loss: {params.loss_w}')
 
@@ -470,10 +471,10 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        m_ori = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5)).to(torch.bool)  # b k
-        m = (2 * m_ori.to(torch.float) - 1).to(params.device)  # b k
+        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5))  # b k [0 1]
+        m_normalized = (2 * m - 1).to(params.device)  # b k [-1 1]
 
-        m_hat, (x_w, x_r) = encoder_decoder(x0, m)
+        m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
         loss_w = message_loss(m_hat, m)  # b k -> 1
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
@@ -495,12 +496,15 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss': loss.item(),
-            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
             'lr': optimizer.param_groups[0]['lr'],
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),
         }
+        if params.log_train_metrics and (epoch + 1) % params.eval_freq == 0:
+            log_stats.update({
+                **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()}
+            })
 
         torch.cuda.synchronize()
         for name, loss in log_stats.items():
@@ -533,10 +537,10 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        m_ori = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5)).to(torch.bool)  # b k
-        m = (2 * m_ori.to(torch.float) - 1).to(params.device)  # b k
+        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5))  # b k [0 1]
+        m_normalized = (2 * m - 1).to(params.device)  # b k [-1 1]
 
-        m_hat, (x_w, x_asd) = encoder_decoder(x0, m, eval_attack=lambda x, _: x)
+        m_hat, (x_w, x_asd) = encoder_decoder(x0, m_normalized, eval_attack=lambda x, _: x)
 
         loss_w = message_loss(m_hat, m)  # b -> 1
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
@@ -553,10 +557,10 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
             'loss_w': loss_w.item(),
             'loss_i': loss_i.item(),
             'loss': loss.item(),
-            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),
+            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
 
         for name, attack in eval_attacks.items():
