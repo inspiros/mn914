@@ -137,7 +137,8 @@ class ResNet18(nn.Module):
         self.img_channels = img_channels
         self.num_classes = num_classes
         super(ResNet18, self).__init__()
-        self.conv1 = nn.Conv2d(self.img_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # small datasets: kernel_size 7 -> 3, stride 2 -> 1, padding 3->1
+        self.conv1 = nn.Conv2d(self.img_channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -205,7 +206,8 @@ class Resnet50(nn.Module):
         self.num_classes = num_classes
 
         super(Resnet50, self).__init__()
-        self.conv1 = nn.Conv2d(self.img_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # small datasets: kernel_size 7 -> 3, stride 2 -> 1, padding 3->1
+        self.conv1 = nn.Conv2d(self.img_channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
