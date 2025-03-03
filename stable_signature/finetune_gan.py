@@ -20,7 +20,7 @@ from hidden import transforms as hidden_transforms
 from stable_signature import utils
 from stable_signature.models import hidden_utils
 from stable_signature.models import dcgan
-from stable_signature.models.resnet import ResNet18, BasicBlock
+from stable_signature.models.resnet import resnet18
 from stable_signature.loss.kl_div_softmax import KLDivSoftmaxLoss
 from stable_signature.loss.loss_provider import LossProvider
 from stable_signature.loss.matching_loss import MatchingLoss
@@ -30,67 +30,77 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     project_root = os.path.dirname(os.path.dirname(__file__))
 
-    def aa(*args, **kwargs):
-        group.add_argument(*args, **kwargs)
+    g = parser.add_argument_group('Data parameters')
+    g.add_argument('exp', type=str, nargs='?', default=None, help='Experiment name')
+    g.add_argument('--dataset', type=str, default=None)
+    g.add_argument('--data_dir', type=str, default=os.path.join(project_root, 'data'))
+    g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
+    g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
 
-    group = parser.add_argument_group('Data parameters')
-    aa('exp', type=str, nargs='?', default=None,
-       help='Experiment name')
-    aa('--dataset', type=str, default=None)
-    aa('--data_dir', type=str, default=os.path.join(project_root, 'data'))
-    aa('--data_mean', type=utils.tuple_inst(float), default=None)
-    aa('--data_std', type=utils.tuple_inst(float), default=None)
+    g = parser.add_argument_group('Model parameters')
+    g.add_argument('--generator_ckpt', type=str, required=True,
+                   help='Path to the checkpoint file for the Generator')
+    g.add_argument('--discriminator_ckpt', type=str, default=None,
+                   help='Path to the checkpoint file for the Discriminator')
+    g.add_argument('--msg_decoder_path', type=str, required=True,
+                   help='Path to the hidden decoder for the watermarking model')
+    g.add_argument('--clf_ckpt', type=str, default=None,
+                   help='Path to the classifier checkpoint for computing distillation loss')
+    g.add_argument('--num_bits', type=int, default=16, help='Number of bits in the watermark')
+    g.add_argument('--z_dim', type=int, default=100, help='Dimension of the latent vector')
+    g.add_argument('--attack_layer', type=str, default='none',
+                   help='Attack simulation layer')
+    g.add_argument('--decoder_depth', type=int, default=8,
+                   help='Depth of the decoder in the watermarking model')
+    g.add_argument('--decoder_channels', type=int, default=64,
+                   help='Number of channels in the decoder of the watermarking model')
 
-    group = parser.add_argument_group('Model parameters')
-    aa('--generator_ckpt', type=str, required=True,
-       help='Path to the checkpoint file for the Generator')
-    aa('--discriminator_ckpt', type=str, default=None,
-       help='Path to the checkpoint file for the Discriminator')
-    aa('--msg_decoder_path', type=str, required=True,
-       help='Path to the hidden decoder for the watermarking model')
-    aa('--clf_ckpt', type=str, default=None,
-       help='Path to the classifier checkpoint for computing distillation loss')
-    aa('--num_bits', type=int, default=16, help='Number of bits in the watermark')
-    aa('--z_dim', type=int, default=100, help='Dimension of the latent vector')
-    aa('--attack_layer', type=str, default='none', help='Attack simulation layer')
-    aa('--decoder_depth', type=int, default=8, help='Depth of the decoder in the watermarking model')
-    aa('--decoder_channels', type=int, default=64, help='Number of channels in the decoder of the watermarking model')
+    g = parser.add_argument_group('Training parameters')
+    g.add_argument('--batch_size', type=int, default=4, help='Batch size for training')
+    g.add_argument('--img_size', type=int, default=256, help='Resize images to this size')
+    g.add_argument('--img_channels', type=int, default=None, help='Number of image channels.')
 
-    group = parser.add_argument_group('Training parameters')
-    aa('--batch_size', type=int, default=4, help='Batch size for training')
-    aa('--img_size', type=int, default=256, help='Resize images to this size')
-    aa('--img_channels', type=int, default=None, help='Number of image channels.')
+    g.add_argument('--loss_i', type=str, default='watson-vgg',
+                   help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
+    g.add_argument('--loss_w', type=str, default='bce',
+                   help='Type of loss for the watermark loss. Can be mse or bce')
+    g.add_argument('--loss_d', type=str, default='none',
+                   help='Type of loss for the distillation loss. Can be kl, mse')
+    g.add_argument('--lambda_i', type=float, default=1.0,
+                   help='Weight of the image loss in the total loss')
+    g.add_argument('--lambda_w', type=float, default=1.0,
+                   help='Weight of the watermark loss in the total loss')
+    g.add_argument('--lambda_d', type=float, default=1.0,
+                   help='Weight of the distillation loss in the total loss')
+    g.add_argument('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
+                   help='Pretrained weights dir for image loss.')
+    g.add_argument('--optimizer', type=str, default='AdamW,lr=5e-4',
+                   help='Optimizer and learning rate for training')
+    g.add_argument('--steps', type=int, default=100,
+                   help='Number of steps to train the model for')
+    g.add_argument('--warmup_steps', type=int, default=20,
+                   help='Number of warmup steps for the optimizer')
 
-    aa('--loss_i', type=str, default='watson-vgg',
-       help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
-    aa('--loss_w', type=str, default='bce', help='Type of loss for the watermark loss. Can be mse or bce')
-    aa('--loss_d', type=str, default='none', help='Type of loss for the distillation loss. Can be kl, mse')
-    aa('--lambda_i', type=float, default=1.0, help='Weight of the image loss in the total loss')
-    aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss in the total loss')
-    aa('--lambda_d', type=float, default=1.0, help='Weight of the distillation loss in the total loss')
-    aa('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
-       help='Pretrained weights dir for image loss.')
-    aa('--optimizer', type=str, default='AdamW,lr=5e-4', help='Optimizer and learning rate for training')
-    aa('--steps', type=int, default=100, help='Number of steps to train the model for')
-    aa('--warmup_steps', type=int, default=20, help='Number of warmup steps for the optimizer')
+    g = parser.add_argument_group('Eval parameters')
+    g.add_argument('--eval_steps', type=int, default=100,
+                   help='Number of steps to evaluate the model for')
+    g.add_argument('--eval_seed', type=int, default=1)
 
-    group = parser.add_argument_group('Eval parameters')
-    aa('--eval_steps', type=int, default=100, help='Number of steps to evaluate the model for')
-    aa('--eval_seed', type=int, default=1)
+    g = parser.add_argument_group('Logging and saving freq. parameters')
+    g.add_argument('--log_freq', type=int, default=10, help='Logging frequency (in steps)')
+    g.add_argument('--save_img_freq', type=int, default=100,
+                   help='Frequency of saving generated images (in steps)')
 
-    group = parser.add_argument_group('Logging and saving freq. parameters')
-    aa('--log_freq', type=int, default=10, help='Logging frequency (in steps)')
-    aa('--save_img_freq', type=int, default=100, help='Frequency of saving generated images (in steps)')
+    g = parser.add_argument_group('Distributed training parameters')
+    g.add_argument('--device', type=str, default='cuda:0', help='Device')
 
-    group = parser.add_argument_group('Distributed training parameters')
-    aa('--device', type=str, default='cuda:0', help='Device')
-
-    group = parser.add_argument_group('Experiments parameters')
-    aa('--num_keys', type=int, default=1, help='Number of fine-tuned checkpoints to generate')
-    aa('--output_dir', type=str, default='outputs',
-       help='Output directory for logs and images (Default: output)')
-    aa('--seed', type=int, default=0)
-    aa('--debug', type=utils.bool_inst, default=False, help='Debug mode')
+    g = parser.add_argument_group('Experiments parameters')
+    g.add_argument('--num_keys', type=int, default=1,
+                   help='Number of fine-tuned checkpoints to generate')
+    g.add_argument('--output_dir', type=str, default='outputs',
+                   help='Output directory for logs and images (Default: output)')
+    g.add_argument('--seed', type=int, default=0)
+    g.add_argument('--debug', type=utils.bool_inst, default=False, help='Debug mode')
 
     params = parser.parse_args()
 
@@ -204,8 +214,7 @@ def main():
         distillation_loss = None
     else:
         # Load resnet18_clf model for distillation loss
-        F_clf = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
-                            img_channels=params.img_channels).to(params.device)
+        F_clf = resnet18(img_channels=params.img_channels, low_resolution=True).to(params.device)
         F_clf.load_state_dict(torch.load(params.clf_ckpt, weights_only=False, map_location=params.device))
         F_clf.eval()
         if params.loss_d == 'kl':

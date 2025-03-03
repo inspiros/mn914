@@ -19,7 +19,7 @@ import torchvision.transforms as transforms
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from stable_signature.models.resnet.resnet18 import ResNet18, Resnet50, BasicBlock, Bottleneck
+from stable_signature.models.resnet.resnet import *
 from stable_signature.utils import tuple_inst
 
 
@@ -103,13 +103,13 @@ def main():
 
     # model
     if params.model == 'resnet18':
-        model = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
+        model = resnet18(num_classes=params.num_classes,
                          img_channels=params.img_channels,
-                         num_classes=params.num_classes).to(device)
+                         low_resolution=True).to(device)
     else:
-        model = Resnet50(block=Bottleneck, layers=[3, 4, 6, 3],
+        model = resnet50(num_classes=params.num_classes,
                          img_channels=params.img_channels,
-                         num_classes=params.num_classes).to(device)
+                         low_resolution=True).to(device)
 
     if len(params.weights):
         model.load_state_dict(torch.load(params.weights, weights_only=False, map_location=device))

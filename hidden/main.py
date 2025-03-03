@@ -56,96 +56,120 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     project_root = os.path.dirname(os.path.dirname(__file__))
 
-    def aa(*args, **kwargs):
-        group.add_argument(*args, **kwargs)
+    g = parser.add_argument_group('Experiments parameters')
+    g.add_argument('exp', type=str, nargs='?', default=None, help='Experiment name')
+    g.add_argument('--dataset', type=str, default=None)
+    g.add_argument('--data_dir', type=str, default=os.path.join(project_root, 'data'))
+    g.add_argument('--train_dir', type=str, default=None)
+    g.add_argument('--val_dir', type=str, default=None)
+    g.add_argument('--output_dir', type=str, default='outputs',
+                   help='Output directory for logs and images (Default: outputs)')
+    g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
+    g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
+    g.add_argument('--eval_only', type=utils.bool_inst, default=False)
 
-    group = parser.add_argument_group('Experiments parameters')
-    aa('exp', type=str, nargs='?', default=None,
-       help='Experiment name')
-    aa('--dataset', type=str, default=None)
-    aa('--data_dir', type=str, default=os.path.join(project_root, 'data'))
-    aa('--train_dir', type=str, default=None)
-    aa('--val_dir', type=str, default=None)
-    aa('--output_dir', type=str, default='outputs',
-       help='Output directory for logs and images (Default: outputs)')
-    aa('--data_mean', type=utils.tuple_inst(float), default=None)
-    aa('--data_std', type=utils.tuple_inst(float), default=None)
-    aa('--eval_only', type=utils.bool_inst, default=False)
+    g = parser.add_argument_group('Marking parameters')
+    g.add_argument('--num_bits', type=int, default=32,
+                   help='Number of bits of the watermark (Default: 32)')
+    g.add_argument('--redundancy', type=int, default=1,
+                   help='Redundancy of the watermark (Default: 1)')
+    g.add_argument('--img_size', type=int, default=28, help='Image size')
+    g.add_argument('--img_channels', type=int, default=None, help='Number of image channels.')
 
-    group = parser.add_argument_group('Marking parameters')
-    aa('--num_bits', type=int, default=32, help='Number of bits of the watermark (Default: 32)')
-    aa('--redundancy', type=int, default=1, help='Redundancy of the watermark (Default: 1)')
-    aa('--img_size', type=int, default=28, help='Image size')
-    aa('--img_channels', type=int, default=None, help='Number of image channels.')
+    g = parser.add_argument_group('Encoder parameters')
+    g.add_argument('--encoder', type=str, default='hidden',
+                   help='Encoder type (Default: hidden)')
+    g.add_argument('--encoder_depth', default=4, type=int,
+                   help='Number of blocks in the encoder.')
+    g.add_argument('--encoder_channels', default=64, type=int,
+                   help='Number of channels in the encoder.')
+    g.add_argument('--use_tanh', type=utils.bool_inst, default=True,
+                   help='Use tanh scaling. (Default: True)')
+    g.add_argument('--generate_delta', type=utils.bool_inst, default=True,
+                   help='Generate permutation delta instead of watermarked image directly (Default: True).')
 
-    group = parser.add_argument_group('Encoder parameters')
-    aa('--encoder', type=str, default='hidden', help='Encoder type (Default: hidden)')
-    aa('--encoder_depth', default=4, type=int, help='Number of blocks in the encoder.')
-    aa('--encoder_channels', default=64, type=int, help='Number of channels in the encoder.')
-    aa('--use_tanh', type=utils.bool_inst, default=True, help='Use tanh scaling. (Default: True)')
-    aa('--generate_delta', type=utils.bool_inst, default=True,
-       help='Generate permutation delta instead of watermarked image directly (Default: True).')
+    g = parser.add_argument_group('Decoder parameters')
+    g.add_argument('--decoder', type=str, default='hidden',
+                   help='Decoder type (Default: hidden)')
+    g.add_argument('--decoder_depth', type=int, default=8,
+                   help='Number of blocks in the decoder (Default: 4)')
+    g.add_argument('--decoder_channels', type=int, default=64,
+                   help='Number of blocks in the decoder (Default: 4)')
 
-    group = parser.add_argument_group('Decoder parameters')
-    aa('--decoder', type=str, default='hidden', help='Decoder type (Default: hidden)')
-    aa('--decoder_depth', type=int, default=8, help='Number of blocks in the decoder (Default: 4)')
-    aa('--decoder_channels', type=int, default=64, help='Number of blocks in the decoder (Default: 4)')
+    g = parser.add_argument_group('Training parameters')
+    g.add_argument('--bn_momentum', type=float, default=0.01,
+                   help='Momentum of the batch normalization layer. (Default: 0.1)')
+    g.add_argument('--eval_freq', default=10, type=int)
+    g.add_argument('--log_train_metrics', type=utils.bool_inst, default=False)
+    g.add_argument('--saveckp_freq', default=100, type=int)
+    g.add_argument('--saveimg_freq', default=10, type=int)
+    g.add_argument('--resume_from', default=None, type=str,
+                   help='Checkpoint path to resume from.')
+    g.add_argument('--scaling_w', type=float, default=1.0,
+                   help='Scaling of the watermark signal. (Default: 1.0)')
+    g.add_argument('--scaling_i', type=float, default=1.0,
+                   help='Scaling of the original image. (Default: 1.0)')
 
-    group = parser.add_argument_group('Training parameters')
-    aa('--bn_momentum', type=float, default=0.01, help='Momentum of the batch normalization layer. (Default: 0.1)')
-    aa('--eval_freq', default=10, type=int)
-    aa('--log_train_metrics', type=utils.bool_inst, default=False)
-    aa('--saveckp_freq', default=100, type=int)
-    aa('--saveimg_freq', default=10, type=int)
-    aa('--resume_from', default=None, type=str, help='Checkpoint path to resume from.')
-    aa('--scaling_w', type=float, default=1.0, help='Scaling of the watermark signal. (Default: 1.0)')
-    aa('--scaling_i', type=float, default=1.0, help='Scaling of the original image. (Default: 1.0)')
+    g = parser.add_argument_group('Optimization parameters')
+    g.add_argument('--epochs', type=int, default=100,
+                   help='Number of epochs for optimization. (Default: 100)')
+    g.add_argument('--pretrain_epochs', type=int, default=0,
+                   help='Number of epochs for image loss-only pretraining. (Default: 0)')
+    g.add_argument('--optimizer', type=str, default='Adam',
+                   help='Optimizer to use. (Default: Adam)')
+    g.add_argument('--scheduler', type=str, default=None,
+                   help='Scheduler to use. (Default: None)')
+    g.add_argument('--lambda_w', type=float, default=1.0,
+                   help='Weight of the watermark loss. (Default: 1.0)')
+    g.add_argument('--lambda_i', type=float, default=0.0,
+                   help='Weight of the image loss. (Default: 0.0)')
+    g.add_argument('--loss_margin', type=float, default=1,
+                   help='Margin of the Hinge loss or temperature of the sigmoid of the BCE loss. (Default: 1.0)')
+    g.add_argument('--loss_w', type=str, default='bce',
+                   help='Loss type. "bce" for binary cross entropy, "cossim" for cosine similarity (Default: bce)')
+    g.add_argument('--loss_i', type=str, default='mse',
+                   help='Loss type. "mse" for mean squared error, "l1" for l1 loss (Default: mse)')
+    g.add_argument('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
+                   help='Pretrained weights dir for image loss.')
 
-    group = parser.add_argument_group('Optimization parameters')
-    aa('--epochs', type=int, default=100, help='Number of epochs for optimization. (Default: 100)')
-    aa('--pretrain_epochs', type=int, default=0,
-       help='Number of epochs for image loss-only pretraining. (Default: 0)')
-    aa('--optimizer', type=str, default='Adam', help='Optimizer to use. (Default: Adam)')
-    aa('--scheduler', type=str, default=None, help='Scheduler to use. (Default: None)')
-    aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss. (Default: 1.0)')
-    aa('--lambda_i', type=float, default=0.0, help='Weight of the image loss. (Default: 0.0)')
-    aa('--loss_margin', type=float, default=1,
-       help='Margin of the Hinge loss or temperature of the sigmoid of the BCE loss. (Default: 1.0)')
-    aa('--loss_w', type=str, default='bce',
-       help='Loss type. "bce" for binary cross entropy, "cossim" for cosine similarity (Default: bce)')
-    aa('--loss_i', type=str, default='mse',
-       help='Loss type. "mse" for mean squared error, "l1" for l1 loss (Default: mse)')
-    aa('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
-       help='Pretrained weights dir for image loss.')
+    g = parser.add_argument_group('Loader parameters')
+    g.add_argument('--batch_size', type=int, default=16, help='Batch size. (Default: 16)')
+    g.add_argument('--batch_size_eval', type=int, default=64, help='Batch size. (Default: 128)')
+    g.add_argument('--workers', type=int, default=8,
+                   help='Number of workers for data loading. (Default: 8)')
 
-    group = parser.add_argument_group('Loader parameters')
-    aa('--batch_size', type=int, default=16, help='Batch size. (Default: 16)')
-    aa('--batch_size_eval', type=int, default=64, help='Batch size. (Default: 128)')
-    aa('--workers', type=int, default=8, help='Number of workers for data loading. (Default: 8)')
+    g = parser.add_argument_group('Attenuation parameters')
+    g.add_argument('--attenuation', type=str, default=None,
+                   help='Attenuation type. (Default: None)')
+    g.add_argument('--scale_channels', type=utils.bool_inst, default=False,
+                   help='Use channel scaling. (Default: False)')
 
-    group = parser.add_argument_group('Attenuation parameters')
-    aa('--attenuation', type=str, default=None, help='Attenuation type. (Default: None)')
-    aa('--scale_channels', type=utils.bool_inst, default=False, help='Use channel scaling. (Default: False)')
+    g = parser.add_argument_group('DA parameters')
+    g.add_argument('--data_augmentation', type=str, default='combined',
+                   help='Type of data augmentation to use at marking time. (Default: combined)')
+    g.add_argument('--p_crop', type=float, default=0.5,
+                   help='Probability of the crop augmentation. (Default: 0.5)')
+    g.add_argument('--p_resize', type=float, default=0.5,
+                   help='Probability of the resize augmentation. (Default: 0.5)')
+    g.add_argument('--p_blur', type=float, default=0.5,
+                   help='Probability of the blur augmentation. (Default: 0.5)')
+    g.add_argument('--p_jpeg', type=float, default=0.5,
+                   help='Probability of the diff JPEG augmentation. (Default: 0.5)')
+    g.add_argument('--p_rot', type=float, default=0.5,
+                   help='Probability of the rotation augmentation. (Default: 0.5)')
+    g.add_argument('--p_color_jitter', type=float, default=0.5,
+                   help='Probability of the color jitter augmentation. (Default: 0.5)')
 
-    group = parser.add_argument_group('DA parameters')
-    aa('--data_augmentation', type=str, default='combined',
-       help='Type of data augmentation to use at marking time. (Default: combined)')
-    aa('--p_crop', type=float, default=0.5, help='Probability of the crop augmentation. (Default: 0.5)')
-    aa('--p_resize', type=float, default=0.5, help='Probability of the resize augmentation. (Default: 0.5)')
-    aa('--p_blur', type=float, default=0.5, help='Probability of the blur augmentation. (Default: 0.5)')
-    aa('--p_jpeg', type=float, default=0.5, help='Probability of the diff JPEG augmentation. (Default: 0.5)')
-    aa('--p_rot', type=float, default=0.5, help='Probability of the rotation augmentation. (Default: 0.5)')
-    aa('--p_color_jitter', type=float, default=0.5, help='Probability of the color jitter augmentation. (Default: 0.5)')
+    g = parser.add_argument_group('Distributed training parameters')
+    g.add_argument('--debug_slurm', action='store_true')
+    g.add_argument('--local_rank', default=-1, type=int)
+    g.add_argument('--master_port', default=-1, type=int)
+    g.add_argument('--dist', type=utils.bool_inst, default=False,
+                   help='Enabling distributed training')
+    g.add_argument('--device', type=str, default='cuda:0', help='Device')
 
-    group = parser.add_argument_group('Distributed training parameters')
-    aa('--debug_slurm', action='store_true')
-    aa('--local_rank', default=-1, type=int)
-    aa('--master_port', default=-1, type=int)
-    aa('--dist', type=utils.bool_inst, default=False, help='Enabling distributed training')
-    aa('--device', type=str, default='cuda:0', help='Device')
-
-    group = parser.add_argument_group('Misc')
-    aa('--seed', default=0, type=int, help='Random seed')
+    g = parser.add_argument_group('Misc')
+    g.add_argument('--seed', default=0, type=int, help='Random seed')
 
     params = parser.parse_args()
 
