@@ -49,8 +49,8 @@ def main():
                  skip_existing=True)
 
     # the rest
-    ckpts_drive_url = 'https://drive.google.com/drive/folders/1NmnhY8MAXJfFrAItFcJq_13nX59OqxM0?usp=sharing'
-    gdown.download_folder(ckpts_drive_url, ckpts_path)
+    ckpts_drive_url = 'https://drive.google.com/drive/folders/1NmnhY8MAXJfFrAItFcJq_13nX59OqxM0?usp=drive_link'
+    gdown.download_folder(ckpts_drive_url, output=ckpts_path)
 
 
 if __name__ == '__main__':
