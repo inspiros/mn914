@@ -525,9 +525,9 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         word_accs = (bit_accs == 1)  # b
         norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
+            'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
-            'loss': itemize(loss),
             'lr': optimizer.param_groups[0]['lr'],
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
@@ -586,9 +586,9 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         word_accs = (bit_accs == 1)  # b
         norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
+            'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
-            'loss': itemize(loss),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),

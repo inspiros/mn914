@@ -8,14 +8,6 @@ We have reorganized and modified it quite a lot to accommodate training on the g
 
 ## Setup
 
-### Requirements
-
-See [`requirements.txt`](requirements.txt).
-
-```cmd
-pip install -r requirements.txt
-```
-
 ### Data
 
 Instead of the [COCO](https://cocodataset.org/) dataset, we are going to use the MNIST dataset for

@@ -1,4 +1,11 @@
+requests
+gdown
 numpy
 scipy
 torch
 torchvision
+timm
+kornia
+lpips
+scikit-image
+matplotlib

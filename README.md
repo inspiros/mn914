@@ -13,6 +13,14 @@ See [`requirements.txt`](requirements.txt).
 pip install -r requirements.txt
 ```
 
+### Pre-trained Weights
+
+Run the following script to download all necessary checkpoints to a folder named `ckpts`.
+
+```cmd
+python tools/download_weights.py
+```
+
 ###### Recommendations
 
 It is highly recommended to create a virtual environment in the project root. For example:

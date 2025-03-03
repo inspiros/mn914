@@ -291,6 +291,12 @@ def main():
         print('\n')
 
 
+def itemize(tensor):
+    if torch.is_tensor(tensor) or isinstance(tensor, np.ndarray):
+        return tensor.item()
+    return tensor
+
+
 def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
           G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, metrics: Dict, params: argparse.Namespace):
@@ -316,11 +322,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # compute loss
         loss_w = message_loss(m_hat, m)
         loss_i = image_loss(x_w, x0)
-        if distillation_loss is not None:
-            # distillation loss
-            loss_d = distillation_loss(x_w, x0)
-        else:
-            loss_d = torch.zeros([])
+        loss_d = distillation_loss(x_w, x0) if distillation_loss is not None else 0
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_d * loss_d
 
         # optim step
@@ -334,10 +336,10 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         word_accs = (bit_accs == 1)  # b
         log_stats = {
             'iteration': it,
-            'loss': loss.item(),
-            'loss_w': loss_w.item(),
-            'loss_i': loss_i.item(),
-            'loss_d': loss_d.item(),
+            'loss': itemize(loss),
+            'loss_w': itemize(loss_w),
+            'loss_i': itemize(loss_i),
+            'loss_d': itemize(loss_d),
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
             'bit_acc_avg': bit_accs.mean().item(),
             'word_acc_avg': word_accs.float().mean().item(),
