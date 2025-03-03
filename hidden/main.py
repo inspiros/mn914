@@ -471,8 +471,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5))  # b k [0 1]
-        m_normalized = (2 * m - 1).to(params.device)  # b k [-1 1]
+        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
+        m_normalized = (2 * m - 1)  # b k [-1 1]
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
@@ -537,8 +537,8 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5))  # b k [0 1]
-        m_normalized = (2 * m - 1).to(params.device)  # b k [-1 1]
+        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
+        m_normalized = (2 * m - 1)  # b k [-1 1]
 
         m_hat, (x_w, x_asd) = encoder_decoder(x0, m_normalized, eval_attack=lambda x, _: x)
 
