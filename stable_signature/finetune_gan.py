@@ -9,7 +9,6 @@ from typing import Callable, Dict
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision.utils import save_image
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -177,7 +176,8 @@ def main():
     if params.loss_w == 'mse':
         message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
-        message_loss = lambda m_hat, m, temp=10.0: F.binary_cross_entropy_with_logits(m_hat * temp, m, reduction='mean')
+        message_loss = lambda m_hat, m, temp=10.0: torch.nn.functional.binary_cross_entropy_with_logits(
+            m_hat * temp, m, reduction='mean')
     else:
         raise ValueError(f'Unknown message loss: {params.loss_w}')
 
@@ -188,15 +188,15 @@ def main():
     elif params.loss_i == 'watson-dft':
         loss_perceptual = provider.get_loss_function(
             'Watson-DFT', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
-        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.shape[0]
+        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
     elif params.loss_i == 'watson-vgg':
         loss_perceptual = provider.get_loss_function(
             'Watson-VGG', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
-        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.shape[0]
+        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
     elif params.loss_i == 'ssim':
         loss_perceptual = provider.get_loss_function(
             'SSIM', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
-        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.shape[0]
+        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
     else:
         raise ValueError(f'Unknown image loss: {params.loss_i}')
 

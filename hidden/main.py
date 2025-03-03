@@ -45,10 +45,11 @@ from torchvision.utils import save_image
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hidden import models, transforms, utils
-from hidden.loss import *
 from hidden.models import attenuations, attack_layers
 from hidden.ops import attacks
 from hidden.ops.metrics import PSNR, SSIM, LPIPS
+
+from stable_signature.loss.loss_provider import LossProvider
 
 
 def parse_args(verbose: bool = True) -> argparse.Namespace:
@@ -82,6 +83,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     aa('--encoder_depth', default=4, type=int, help='Number of blocks in the encoder.')
     aa('--encoder_channels', default=64, type=int, help='Number of channels in the encoder.')
     aa('--use_tanh', type=utils.bool_inst, default=True, help='Use tanh scaling. (Default: True)')
+    aa('--generate_delta', type=utils.bool_inst, default=True,
+       help='Generate permutation delta instead of watermarked image directly (Default: True).')
 
     group = parser.add_argument_group('Decoder parameters')
     aa('--decoder', type=str, default='hidden', help='Decoder type (Default: hidden)')
@@ -109,6 +112,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
        help='Loss type. "bce" for binary cross entropy, "cossim" for cosine similarity (Default: bce)')
     aa('--loss_i', type=str, default='mse',
        help='Loss type. "mse" for mean squared error, "l1" for l1 loss (Default: mse)')
+    aa('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
+       help='Pretrained weights dir for image loss.')
 
     group = parser.add_argument_group('Loader parameters')
     aa('--batch_size', type=int, default=16, help='Batch size. (Default: 16)')
@@ -255,10 +260,10 @@ def main():
             embed_dim=params.encoder_channels, depth=params.encoder_depth,
             num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
     elif params.encoder == 'ae':
-        encoder = models.AEStyleEncoder(
+        encoder = models.AEHidingNetwork(
             num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
     elif params.encoder == 'unet':
-        encoder = models.UNetStyleEncoder(
+        encoder = models.UNetHidingNetwork(
             num_bits=params.num_bits, in_channels=params.img_channels, last_tanh=params.use_tanh)
     else:
         raise ValueError('Unknown encoder type')
@@ -302,7 +307,35 @@ def main():
         raise ValueError('Unknown data augmentation type')
     print('data augmentation:', data_aug)
 
-    # Construct data augmentation at eval time
+    print(f'Losses: {params.loss_w} and {params.loss_i}')
+    if params.loss_w == 'mse':
+        message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
+    elif params.loss_w == 'bce':
+        message_loss = lambda m_hat, m, temp=10.0: torch.nn.functional.binary_cross_entropy_with_logits(
+            m_hat * temp, m, reduction='mean')
+    else:
+        raise ValueError(f'Unknown message loss: {params.loss_w}')
+
+    provider = LossProvider(params.loss_i_dir)
+    colorspace = 'LA' if params.img_channels == 1 else 'RGB'
+    if params.loss_i == 'mse':
+        image_loss = lambda x_w, x0: torch.mean((x_w - x0) ** 2)
+    elif params.loss_i == 'watson-dft':
+        loss_perceptual = provider.get_loss_function(
+            'Watson-DFT', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
+        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
+    elif params.loss_i == 'watson-vgg':
+        loss_perceptual = provider.get_loss_function(
+            'Watson-VGG', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
+        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
+    elif params.loss_i == 'ssim':
+        loss_perceptual = provider.get_loss_function(
+            'SSIM', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
+        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
+    else:
+        raise ValueError(f'Unknown image loss: {params.loss_i}')
+
+    # attacks
     eval_attacks = {
         'none': attacks.Identity(),
         'crop_01': attacks.CenterCrop(0.1),
@@ -334,12 +367,13 @@ def main():
                                             attenuation=attenuation,
                                             attack_layer=data_aug,
                                             decoder=decoder,
+                                            generate_delta=params.generate_delta,
                                             scale_channels=params.scale_channels,
                                             scaling_i=params.scaling_i,
                                             scaling_w=params.scaling_w,
                                             num_bits=params.num_bits,
                                             redundancy=params.redundancy,
-                                            std=params.data_std)
+                                            std=params.data_std if params.scale_channels else None)
     encoder_decoder = encoder_decoder.to(params.device)
 
     # Distributed training
@@ -395,11 +429,13 @@ def main():
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
 
-        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, scheduler, metrics, epoch, params)
+        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, message_loss, image_loss,
+                                      scheduler, metrics, epoch, params)
         log_stats = {'epoch': epoch, **{f'train_{k}': v for k, v in train_stats.items()}}
 
         if (epoch + 1) % params.eval_freq == 0:
-            val_stats = eval_one_epoch(encoder_decoder, val_loader, epoch, eval_attacks, metrics, params)
+            val_stats = eval_one_epoch(encoder_decoder, val_loader, message_loss, image_loss,
+                                       epoch, eval_attacks, metrics, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
 
         save_dict = {
@@ -420,7 +456,8 @@ def main():
 
 
 # noinspection DuplicatedCode
-def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, scheduler, metrics, epoch, params):
+def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
+                    message_loss, image_loss, scheduler, metrics, epoch, params):
     r"""
     One epoch of training.
     """
@@ -438,8 +475,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m)
 
-        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w)  # b k -> 1
-        loss_i = image_loss(x_w, x0, loss_type=params.loss_i)  # b c h w -> 1
+        loss_w = message_loss(m_hat, m)  # b k -> 1
+        loss_i = image_loss(x_w, x0)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # gradient step
@@ -484,7 +521,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer, s
 
 # noinspection DuplicatedCode
 @torch.no_grad()
-def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_attacks, metrics, params):
+def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
+                   message_loss, image_loss, epoch, eval_attacks, metrics, params):
     r"""
     One epoch of eval.
     """
@@ -500,8 +538,8 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, epoch, eval_a
 
         m_hat, (x_w, x_asd) = encoder_decoder(x0, m, eval_attack=lambda x, _: x)
 
-        loss_w = message_loss(m_hat, m, m=params.loss_margin, loss_type=params.loss_w)  # b -> 1
-        loss_i = image_loss(x_w, x0, loss_type=params.loss_i)  # b c h w -> 1
+        loss_w = message_loss(m_hat, m)  # b -> 1
+        loss_i = image_loss(x_w, x0)  # b c h w -> 1
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i
 
         # stats

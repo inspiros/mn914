@@ -11,7 +11,7 @@ class DvmarkEncoder(nn.Module):
     Inserts a watermark into an image.
     """
 
-    def __init__(self, num_blocks, num_bits, channels, in_channels=3, last_tanh=True):
+    def __init__(self, num_blocks: int, num_bits: int, channels: int, in_channels: int = 3, last_tanh: bool = True):
         super(DvmarkEncoder, self).__init__()
 
         transform_layers = [ConvBNRelu2d(in_channels, channels)]
@@ -47,25 +47,25 @@ class DvmarkEncoder(nn.Module):
         self.last_tanh = last_tanh
         self.tanh = nn.Tanh()
 
-    def forward(self, imgs, msgs):
+    def forward(self, x: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
-        encoded_image = self.transform_layers(imgs)  # b c h w
+        encoded_image = self.transform_layers(x)  # b c h w
 
-        msgs = msgs.unsqueeze(-1).unsqueeze(-1)  # b l 1 1
+        m = m.unsqueeze(-1).unsqueeze(-1)  # b l 1 1
 
-        scale1 = torch.cat([msgs.expand(-1, -1, imgs.size(-2), imgs.size(-1)), encoded_image],
+        scale1 = torch.cat([m.expand(-1, -1, x.size(-2), x.size(-1)), encoded_image],
                            dim=1)  # b l+c h w
         scale1 = self.scale1_layers(scale1)  # b c*2 h w
 
         scale2 = self.avg_pool(scale1)  # b c*2 h/2 w/2
-        scale2 = torch.cat([msgs.expand(-1, -1, imgs.size(-2) // 2, imgs.size(-1) // 2), scale2],
+        scale2 = torch.cat([m.expand(-1, -1, x.size(-2) // 2, x.size(-1) // 2), scale2],
                            dim=1)  # b l+c*2 h/2 w/2
         scale2 = self.scale2_layers(scale2)  # b c*2 h/2 w/2
 
         scale1 = scale1 + self.upsample(scale2)  # b c*2 h w
-        im_w = self.final_layer(scale1)  # b 3 h w
+        x_w = self.final_layer(scale1)  # b 3 h w
 
         if self.last_tanh:
-            im_w = self.tanh(im_w)
+            x_w = self.tanh(x_w)
 
-        return im_w
+        return x_w

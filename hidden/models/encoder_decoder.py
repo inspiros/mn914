@@ -20,6 +20,7 @@ class EncoderDecoder(nn.Module):
                  attenuation: Optional[attenuations.JND],
                  attack_layer: nn.Module,
                  decoder: nn.Module,
+                 generate_delta: bool,
                  scale_channels: bool,
                  scaling_i: float,
                  scaling_w: float,
@@ -32,6 +33,7 @@ class EncoderDecoder(nn.Module):
         self.attack_layer = attack_layer
         self.decoder = decoder
         # params for the forward pass
+        self.generate_delta = generate_delta
         self.scale_channels = scale_channels
         self.scaling_i = scaling_i
         self.scaling_w = scaling_w
@@ -46,7 +48,7 @@ class EncoderDecoder(nn.Module):
     def forward(self,
                 x0: torch.Tensor,
                 m: torch.Tensor,
-                eval_attack: Optional[nn.Module] = None):
+                eval_attack: Optional[nn.Module] = None) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         r"""
         Does the full forward pass of the encoder-decoder network:
         - encodes the message into the image
@@ -61,20 +63,22 @@ class EncoderDecoder(nn.Module):
         """
         # encoder
         delta_w = self.encoder(x0, m)  # b c h w
+        if self.generate_delta:
+            # scaling channels: more weight to blue channel
+            if self.scale_channels and self.std is not None:
+                # aa = 1 / 4.6  # such that aas has mean 1
+                # aas = aa * torch.tensor([(1 / 0.299), (1 / 0.587), (1 / 0.114)])
+                aas = 1 / self.std
+                aas /= aas.mean()
+                delta_w = delta_w * aas.to(dtype=x0.dtype).view(-1, 1, 1)
 
-        # scaling channels: more weight to blue channel
-        if self.scale_channels and self.std is not None:
-            # aa = 1 / 4.6  # such that aas has mean 1
-            # aas = aa * torch.tensor([(1 / 0.299), (1 / 0.587), (1 / 0.114)])
-            aas = 1 / self.std
-            aas /= aas.mean()
-            delta_w = delta_w * aas.to(dtype=x0.dtype).view(-1, 1, 1)
-
-        # add heatmaps
-        if self.attenuation is not None:
-            heatmaps = self.attenuation.heatmaps(x0)  # b 1 h w
-            delta_w = delta_w * heatmaps  # # b c h w * b 1 h w -> b c h w
-        x_w = self.scaling_i * x0 + self.scaling_w * delta_w  # b c h w
+            # add heatmaps
+            if self.attenuation is not None:
+                heatmaps = self.attenuation.heatmaps(x0)  # b 1 h w
+                delta_w = delta_w * heatmaps  # # b c h w * b 1 h w -> b c h w
+            x_w = self.scaling_i * x0 + self.scaling_w * delta_w  # b c h w
+        else:
+            x_w = delta_w
 
         # attack simulation
         if eval_attack is not None:
@@ -94,6 +98,7 @@ class EncoderWithJND(nn.Module):
     def __init__(self,
                  encoder: nn.Module,
                  attenuation: Optional[attenuations.JND],
+                 generate_delta: bool,
                  scale_channels: bool,
                  scaling_i: float,
                  scaling_w: float):
@@ -101,30 +106,30 @@ class EncoderWithJND(nn.Module):
         self.encoder = encoder
         self.attenuation = attenuation
         # params for the forward pass
+        self.generate_delta = generate_delta
         self.scale_channels = scale_channels
         self.scaling_i = scaling_i
         self.scaling_w = scaling_w
 
-    def forward(self,
-                x0: torch.Tensor,
-                m: torch.Tensor):
+    def forward(self, x0: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
         r""" Does the forward pass of the encoder only """
-
         # encoder
         delta_w = self.encoder(x0, m)  # b c h w
+        if self.generate_delta:
+            # scaling channels: more weight to blue channel
+            if self.scale_channels and self.std is not None:
+                # aa = 1 / 4.6  # such that aas has mean 1
+                # aas = aa * torch.tensor([(1 / 0.299), (1 / 0.587), (1 / 0.114)])
+                aas = 1 / self.std
+                aas /= aas.mean()
+                delta_w = delta_w * aas.to(dtype=x0.dtype).view(-1, 1, 1)
 
-        # scaling channels: more weight to blue channel
-        if self.scale_channels and self.std is not None:
-            # aa = 1 / 4.6  # such that aas has mean 1
-            # aas = aa * torch.tensor([(1 / 0.299), (1 / 0.587), (1 / 0.114)])
-            aas = 1 / self.std
-            aas /= aas.mean()
-            delta_w = delta_w * aas.to(dtype=x0.dtype).view(-1, 1, 1)
-
-        # add heatmaps
-        if self.attenuation is not None:
-            heatmaps = self.attenuation.heatmaps(x0)  # b 1 h w
-            delta_w = delta_w * heatmaps  # # b c h w * b 1 h w -> b c h w
-        x_w = self.scaling_i * x0 + self.scaling_w * delta_w  # b c h w
+            # add heatmaps
+            if self.attenuation is not None:
+                heatmaps = self.attenuation.heatmaps(x0)  # b 1 h w
+                delta_w = delta_w * heatmaps  # # b c h w * b 1 h w -> b c h w
+            x_w = self.scaling_i * x0 + self.scaling_w * delta_w  # b c h w
+        else:
+            x_w = delta_w
 
         return x_w

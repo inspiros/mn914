@@ -10,12 +10,12 @@ class ImgEmbed(nn.Module):
     Patch to Image Embedding.
     """
 
-    def __init__(self, patch_size=16, in_channels=3, embed_dim=768):
+    def __init__(self, patch_size: int = 16, in_channels: int = 3, embed_dim: int = 768):
         super().__init__()
         self.patch_size = patch_size
         self.proj = nn.ConvTranspose2d(embed_dim, in_channels, kernel_size=patch_size, stride=patch_size)
 
-    def forward(self, x, num_patches_w, num_patches_h):
+    def forward(self, x: torch.Tensor, num_patches_w: int, num_patches_h: int) -> torch.Tensor:
         B, S, CKK = x.shape  # ckk = embed_dim
         x = self.proj(x.transpose(1, 2).reshape(
             B, CKK, num_patches_h, num_patches_w))  # b s (c k k) -> b (c k k) s -> b (c k k) sh sw -> b c h w
@@ -24,10 +24,10 @@ class ImgEmbed(nn.Module):
 
 class VitEncoder(vision_transformer.VisionTransformer):
     r"""
-    Inserts a watermark into an image.
+    Inserts a watermark into an image using a Vision Transformer.
     """
 
-    def __init__(self, num_bits, in_channels=3, last_tanh=True, **kwargs):
+    def __init__(self, num_bits: int, in_channels: int = 3, last_tanh: bool = True, **kwargs):
         super(VitEncoder, self).__init__(**kwargs)
 
         self.head = nn.Identity()
@@ -40,7 +40,8 @@ class VitEncoder(vision_transformer.VisionTransformer):
         self.last_tanh = last_tanh
         self.tanh = nn.Tanh()
 
-    def forward(self, x, msgs):
+    # noinspection PyMethodOverriding
+    def forward(self, x: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
         num_patches = int(self.patch_embed.num_patches ** 0.5)
 
@@ -51,17 +52,17 @@ class VitEncoder(vision_transformer.VisionTransformer):
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
-        msgs = msgs.unsqueeze(1)  # b 1 k
-        msgs = msgs.repeat(1, x.shape[1], 1)  # b 1 k -> b l k
+        m = m.unsqueeze(1)  # b 1 k
+        m = m.repeat(1, x.shape[1], 1)  # b 1 k -> b l k
         for ii, blk in enumerate(self.blocks):
-            x = torch.concat([x, msgs], dim=-1)  # b l (cpq+k)
+            x = torch.concat([x, m], dim=-1)  # b l (cpq+k)
             x = self.msg_linear(x)
             x = blk(x)
 
         x = x[:, 1:, :]  # without cls token
-        img_w = self.unpatch(x, num_patches, num_patches)
+        x_w = self.unpatch(x, num_patches, num_patches)
 
         if self.last_tanh:
-            img_w = self.tanh(img_w)
+            x_w = self.tanh(x_w)
 
-        return img_w
+        return x_w

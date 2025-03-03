@@ -1,3 +1,6 @@
+"""
+Notes: Deprecated in favor of stable signature losses
+"""
 import torch
 import torch.nn.functional as F
 

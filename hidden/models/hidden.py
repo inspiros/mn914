@@ -25,21 +25,21 @@ class HiddenEncoder(nn.Module):
         self.last_tanh = last_tanh
         self.tanh = nn.Tanh()
 
-    def forward(self, imgs, msgs):
+    def forward(self, x: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
-        msgs = msgs.unsqueeze(-1).unsqueeze(-1)  # b l 1 1
-        msgs = msgs.expand(-1, -1, imgs.size(-2), imgs.size(-1))  # b l h w
+        m = m.unsqueeze(-1).unsqueeze(-1)  # b l 1 1
+        m = m.expand(-1, -1, x.size(-2), x.size(-1))  # b l h w
 
-        encoded_image = self.conv_bns(imgs)  # b c h w
+        encoded_image = self.conv_bns(x)  # b c h w
 
-        concat = torch.cat([msgs, encoded_image, imgs], dim=1)  # b l+c+3 h w
-        im_w = self.after_concat_layer(concat)
-        im_w = self.final_layer(im_w)
+        concat = torch.cat([m, encoded_image, x], dim=1)  # b l+c+3 h w
+        x_w = self.after_concat_layer(concat)
+        x_w = self.final_layer(x_w)
 
         if self.last_tanh:
-            im_w = self.tanh(im_w)
+            x_w = self.tanh(x_w)
 
-        return im_w
+        return x_w
 
 
 class HiddenDecoder(nn.Module):
@@ -62,8 +62,8 @@ class HiddenDecoder(nn.Module):
 
         self.linear = nn.Linear(num_bits, num_bits)
 
-    def forward(self, img_w):
-        x = self.layers(img_w)  # b d 1 1
+    def forward(self, x_w: torch.Tensor) -> torch.Tensor:
+        x = self.layers(x_w)  # b d 1 1
         x = x.squeeze(-1).squeeze(-1)  # b d
-        x = self.linear(x)  # b d
-        return x
+        m_hat = self.linear(x)  # b d
+        return m_hat
