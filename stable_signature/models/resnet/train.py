@@ -47,12 +47,12 @@ def parse_args():
                         help='number of epochs to train for')
     parser.add_argument('--model', required=True,
                         help='resnet18 | resnet50')
+    parser.add_argument('--weights', default='',
+                        help='path to weights (to continue training)')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='learning rate, default=0.001')
     parser.add_argument('--device', default='cuda:0',
                         help='device to use for training')
-    parser.add_argument('--net', default='',
-                        help='path to net (to continue training)')
     parser.add_argument('--outf', default='outputs',
                         help='folder to output images and model checkpoints')
     parser.add_argument('--save_freq', type=int, default=1,
@@ -104,15 +104,15 @@ def main():
     # model
     if params.model == 'resnet18':
         model = ResNet18(block=BasicBlock, layers=[2, 2, 2, 2],
-                        img_channels=params.img_channels,
-                        num_classes=params.num_classes).to(device)
+                         img_channels=params.img_channels,
+                         num_classes=params.num_classes).to(device)
     else:
         model = Resnet50(block=Bottleneck, layers=[3, 4, 6, 3],
-                        img_channels=params.img_channels,
-                        num_classes=params.num_classes).to(device)
-    
-    if params.net != '':
-        model.load_state_dict(torch.load(params.net))
+                         img_channels=params.img_channels,
+                         num_classes=params.num_classes).to(device)
+
+    if len(params.weights):
+        model.load_state_dict(torch.load(params.weights, weights_only=False, map_location=device))
 
     # loss
     criterion = nn.CrossEntropyLoss()
