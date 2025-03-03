@@ -126,7 +126,8 @@ torchrun --nproc_per_node=$GPUS$ main.py --local_rank 0
 <details>
 <summary><span style="font-weight: normal;">Optimization Parameters</span></summary>
 
-- `--epochs`: Number of epochs for optimization. Default: 400
+- `--epochs`: Number of epochs for optimization. Default: 100
+- `--pretrain_epochs`: Number of epochs for image loss-only pretraining. Default: 0
 - `--optimizer`: Optimizer to use (e.g., "Adam"). Default: "Adam"
 - `--scheduler`: Learning rate scheduler to use (ex: "
   CosineLRScheduler,lr_min=1e-6,t_initial=400,warmup_lr_init=1e-6,warmup_t=5"). Default: None

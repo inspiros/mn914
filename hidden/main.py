@@ -103,6 +103,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     group = parser.add_argument_group('Optimization parameters')
     aa('--epochs', type=int, default=100, help='Number of epochs for optimization. (Default: 100)')
+    aa('--pretrain_epochs', type=int, default=0,
+       help='Number of epochs for image loss-only pretraining. (Default: 0)')
     aa('--optimizer', type=str, default='Adam', help='Optimizer to use. (Default: Adam)')
     aa('--scheduler', type=str, default=None, help='Scheduler to use. (Default: None)')
     aa('--lambda_w', type=float, default=1.0, help='Weight of the watermark loss. (Default: 1.0)')
@@ -456,6 +458,12 @@ def main():
     print(f'Training time {datetime.timedelta(seconds=int(total_time))}')
 
 
+def itemize(tensor):
+    if torch.is_tensor(tensor) or isinstance(tensor, np.ndarray):
+        return tensor.item()
+    return tensor
+
+
 # noinspection DuplicatedCode
 def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
                     message_loss, image_loss, scheduler, metrics, epoch, params):
@@ -472,13 +480,13 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
         m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
-        m_normalized = (2 * m - 1)  # b k [-1 1]
+        m_normalized = 2 * m - 1  # b k [-1 1]
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
-        loss_w = message_loss(m_hat, m)  # b k -> 1
+        loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i if epoch >= params.pretrain_epochs else loss_i
 
         # gradient step
         optimizer.zero_grad()
@@ -493,9 +501,9 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         word_accs = (bit_accs == 1)  # b
         norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
-            'loss_w': loss_w.item(),
-            'loss_i': loss_i.item(),
-            'loss': loss.item(),
+            'loss_w': itemize(loss_w),
+            'loss_i': itemize(loss_i),
+            'loss': itemize(loss),
             'lr': optimizer.param_groups[0]['lr'],
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
@@ -538,13 +546,13 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
         m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
-        m_normalized = (2 * m - 1)  # b k [-1 1]
+        m_normalized = 2 * m - 1  # b k [-1 1]
 
         m_hat, (x_w, x_asd) = encoder_decoder(x0, m_normalized, eval_attack=lambda x, _: x)
 
-        loss_w = message_loss(m_hat, m)  # b -> 1
+        loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i if epoch >= params.pretrain_epochs else loss_i
 
         # stats
         ori_msgs = torch.sign(m) > 0
@@ -554,9 +562,9 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         word_accs = (bit_accs == 1)  # b
         norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
-            'loss_w': loss_w.item(),
-            'loss_i': loss_i.item(),
-            'loss': loss.item(),
+            'loss_w': itemize(loss_w),
+            'loss_i': itemize(loss_i),
+            'loss': itemize(loss),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),

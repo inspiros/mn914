@@ -67,5 +67,5 @@ def ssim(x: torch.Tensor, y: torch.Tensor,
     res = torch.empty((x.size(0),), dtype=x.dtype)
     for i in range(x.size(0)):
         res[i] = float(sk_metrics.structural_similarity(
-            x_np, y_np, data_range=1.0, channel_axis=-3))
+            x_np, y_np, data_range=255, channel_axis=-3))
     return res.to(device=x.device)
