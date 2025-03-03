@@ -88,7 +88,7 @@ def main():
         pass
 
     if params.manual_seed is not None:
-        print("Random Seed: ", params.manual_seed)
+        print('Random Seed: ', params.manual_seed)
         random.seed(params.manual_seed)
         torch.manual_seed(params.manual_seed)
         if device.type.startswith('cuda'):
@@ -126,8 +126,8 @@ def main():
     fake_label = 0
 
     # setup optimizer
-    optimD = optim.Adam(netD.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
-    optimG = optim.Adam(netG.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
+    optimD = optim.AdamW(netD.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
+    optimG = optim.AdamW(netG.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
 
     for epoch in range(params.epochs):
         for i, (X, _) in enumerate(dataloader):

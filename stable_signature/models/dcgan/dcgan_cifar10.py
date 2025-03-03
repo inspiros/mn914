@@ -7,7 +7,7 @@ __all__ = ['Generator', 'Discriminator']
 class Generator(nn.Module):
     def __init__(self, nc: int = 3, nz: int = 100, ngf: int = 64):
         super(Generator, self).__init__()
-        self.main = nn.Sequential(
+        self.main = self.main = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0, bias=False),
             nn.BatchNorm2d(ngf * 8),
@@ -24,8 +24,10 @@ class Generator(nn.Module):
             nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
             nn.BatchNorm2d(ngf),
             nn.ReLU(True),
-            nn.ConvTranspose2d(ngf, nc, kernel_size=1, stride=1, padding=0, bias=False),
+            # state size. (ngf) x 32 x 32
+            nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
             nn.Tanh()
+            # state size. (nc) x 64 x 64
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -52,7 +54,7 @@ class Discriminator(nn.Module):
             nn.BatchNorm2d(ndf * 8),
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x 4 x 4
-            nn.Conv2d(ndf * 8, 1, 2, 2, 0, bias=False),
+            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
             nn.Sigmoid()
         )
 
