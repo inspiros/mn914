@@ -83,19 +83,19 @@ class AEHidingNetwork(nn.Module):
         self.features_level_insertion = features_level_insertion
         self.encoder = nn.Sequential(
             ConvBNRelu2d(in_channels + (num_bits if not features_level_insertion else 0),
-                         8, 3, stride=1, padding=1, activation='gelu'),  # [b, 8, 32, 32]
-            Down(8, 16),  # [b, 16, 16, 16]
-            Down(16, 32),  # [b, 32, 8, 8]
-			Down(32, 64),  # [b, 64, 4, 4]
-			Down(64, 128),  # [b, 128, 2, 2]
+                         16, 3, stride=1, padding=1, activation='gelu'),  # [b, 16, 32, 32]
+            Down(16, 32),  # [b, 32, 16, 16]
+            Down(32, 64),  # [b, 64, 8, 8]
+			Down(64, 128),  # [b, 128, 4, 4]
+			Down(128, 256),  # [b, 256, 2, 2]
         )
         self.decoder = nn.Sequential(
-			Up(128 + (num_bits if features_level_insertion else 0),
-               64, use_upsample=use_upsample),  # [b, 64, 4, 4]
-			Up(64, 32, use_upsample=use_upsample),  # [b, 32, 8, 8]
-			Up(32, 16, use_upsample=use_upsample),  # [b, 16, 16, 16]
-            Up(16, 8, use_upsample=use_upsample),  # [b, 8, 32, 32]
-            nn.Conv2d(8, in_channels, 1, stride=1),  # [b, 3, 32, 32]
+			Up(256 + (num_bits if features_level_insertion else 0),
+               128, use_upsample=use_upsample),  # [b, 128, 4, 4]
+			Up(128, 64, use_upsample=use_upsample),  # [b, 64, 8, 8]
+			Up(64, 32, use_upsample=use_upsample),  # [b, 32, 16, 16]
+            Up(32, 16, use_upsample=use_upsample),  # [b, 16, 32, 32]
+            nn.Conv2d(16, in_channels, 1, stride=1),  # [b, 3, 32, 32]
         )
         self.last_tanh = last_tanh
 

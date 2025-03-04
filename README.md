@@ -13,7 +13,7 @@ See [`requirements.txt`](requirements.txt).
 pip install -r requirements.txt
 ```
 
-### Pre-trained Weights
+### Download Pre-trained Weights
 
 Run the following script to download all necessary checkpoints to a folder named `ckpts`.
 
@@ -50,6 +50,10 @@ mn914/
 └───ckpts/               <== Final model checkpoints
 └───hidden/              <== HiDDeN submodule
 └───stable_signature/    <== Stable Signature submodule
+│   └───models/
+│       └───dcgan/       <-- DCGAN
+│       └───r3gan/       <-- R3GAN
+│       └───resnet/      <-- ResNet classifiers
 └───resources/           <== Where we store resources (figures, etc.)
 ```
 

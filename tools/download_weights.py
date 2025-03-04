@@ -27,7 +27,7 @@ def main():
              os.path.join(ckpts_path, ss_hidden_weight),
              skip_existing=True)
 
-    # Watson Percetptual Loss
+    # Watson Perceptual Loss
     watson_repo_path = 'https://github.com/SteffenCzolbe/PerceptualSimilarity/raw/refs/heads/master/src/loss/weights'
     watson_weights = [
         'gray_adaptive_trial0.pth',
@@ -47,6 +47,11 @@ def main():
         download(watson_repo_path + '/' + weight_file,
                  os.path.join(loss_ckpts_path, weight_file),
                  skip_existing=True)
+
+    # r3gan
+    download('https://huggingface.co/brownvc/R3GAN-CIFAR10/blob/main/network-snapshot-final.pkl',
+             os.path.join(ckpts_path, 'r3gan_cifar10.pkl'),
+             skip_existing=True)
 
     # the rest
     ckpts_drive_url = 'https://drive.google.com/drive/folders/1NmnhY8MAXJfFrAItFcJq_13nX59OqxM0?usp=drive_link'

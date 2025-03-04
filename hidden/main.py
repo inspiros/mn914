@@ -323,9 +323,9 @@ def main():
 
     # Construct data augmentation seen at train time
     if params.data_augmentation == 'combined':
-        data_aug = attack_layers.HiddenAttackLayer(params.img_size, params.p_crop, params.p_blur, params.p_jpeg,
-                                                   params.p_rot, params.p_color_jitter, params.p_resize).to(
-            params.device)
+        data_aug = attack_layers.HiddenAttackLayer(
+            params.img_size, params.p_crop, params.p_blur, params.p_jpeg,
+            params.p_rot, params.p_color_jitter, params.p_resize).to(params.device)
     elif params.data_augmentation == 'kornia':
         data_aug = attack_layers.KorniaAttackLayer().to(params.device)
     elif params.data_augmentation == 'none':
@@ -572,7 +572,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
         m_normalized = 2 * m - 1  # b k [-1 1]
 
-        m_hat, (x_w, x_asd) = encoder_decoder(x0, m_normalized, eval_attack=lambda x, _: x)
+        m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized, eval_attack=lambda x, _: x)
 
         loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
