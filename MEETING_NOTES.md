@@ -47,59 +47,59 @@ The watermark extractor used is the pretrained weights published by the authors.
 ##### 2.2.1. Baseline
 
 ```cmd
-python finetune_r3gan.py r3gan_cifar101 --num_keys 1 `
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] `
-    --img_size 32 --num_bits 48 --batch_size 128 `
-    --steps 2000 --eval_steps 100 `
-    --generator_ckpt ../ckpts/r3gan_cifar10.pkl `
-    --msg_decoder_path ../ckpts/hidden_replicate.pth `
-    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth `
-    --attack_layer none `
-    --loss_i watson-vgg --loss_w bce --loss_d none `
+python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
+    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
+    --img_size 32 --num_bits 48 --batch_size 128 \
+    --steps 2000 --eval_steps 100 \
+    --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
+    --msg_decoder_path ../ckpts/hidden_replicate.pth \
+    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth \
+    --attack_layer none \
+    --loss_i watson-vgg --loss_w bce --loss_d none \
     --lambda_i 1 --lambda_w 0.05 --lambda_d 0
 ```
 
 ##### 2.2.2. With attack layer
 
 ```cmd
-python finetune_r3gan.py r3gan_cifar101 --num_keys 1 `
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] `
-    --img_size 32 --num_bits 48 --batch_size 128 `
-    --steps 2000 --eval_steps 100 `
-    --generator_ckpt ../ckpts/r3gan_cifar10.pkl `
-    --msg_decoder_path ../ckpts/hidden_replicate.pth `
-    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth `
-    --attack_layer hidden `
-    --loss_i watson-vgg --loss_w bce --loss_d none `
+python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
+    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
+    --img_size 32 --num_bits 48 --batch_size 128 \
+    --steps 2000 --eval_steps 100 \
+    --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
+    --msg_decoder_path ../ckpts/hidden_replicate.pth \
+    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth \
+    --attack_layer hidden \
+    --loss_i watson-vgg --loss_w bce --loss_d none \
     --lambda_i 1 --lambda_w 0.05 --lambda_d 0
 ```
 
 ##### 2.2.3. With logit loss
 
 ```cmd
-python finetune_r3gan.py r3gan_cifar101 --num_keys 1 `
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] `
-    --img_size 32 --num_bits 48 --batch_size 128 `
-    --steps 2000 --eval_steps 100 `
-    --generator_ckpt ../ckpts/r3gan_cifar10.pkl `
-    --msg_decoder_path ../ckpts/hidden_replicate.pth `
-    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth `
-    --attack_layer none `
-    --loss_i watson-vgg --loss_w bce --loss_d kl `
+python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
+    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
+    --img_size 32 --num_bits 48 --batch_size 128 \
+    --steps 2000 --eval_steps 100 \
+    --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
+    --msg_decoder_path ../ckpts/hidden_replicate.pth \
+    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth \
+    --attack_layer none \
+    --loss_i watson-vgg --loss_w bce --loss_d kl \
     --lambda_i 1 --lambda_w 0.05 --lambda_d 0.1
 ```
 
 ##### 2.2.4. With both modifications
 
 ```cmd
-python finetune_r3gan.py r3gan_cifar101 --num_keys 1 `
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] `
-    --img_size 32 --num_bits 48 --batch_size 128 `
-    --steps 2000 --eval_steps 100 `
-    --generator_ckpt ../ckpts/r3gan_cifar10.pkl `
-    --msg_decoder_path ../ckpts/hidden_replicate.pth `
-    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth `
-    --attack_layer hidden `
-    --loss_i watson-vgg --loss_w bce --loss_d kl `
+python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
+    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
+    --img_size 32 --num_bits 48 --batch_size 128 \
+    --steps 2000 --eval_steps 100 \
+    --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
+    --msg_decoder_path ../ckpts/hidden_replicate.pth \
+    --clf_ckpt ../ckpts/clf/resnet18_cifar10.pth \
+    --attack_layer hidden \
+    --loss_i watson-vgg --loss_w bce --loss_d kl \
     --lambda_i 1 --lambda_w 0.05 --lambda_d 0.1
 ```
