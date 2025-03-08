@@ -486,7 +486,7 @@ class SmoothedValue(object):
 
 
 class MetricLogger(object):
-    def __init__(self, delimiter='\t'):
+    def __init__(self, delimiter=', '):
         self.meters = defaultdict(SmoothedValue)
         self.delimiter = delimiter
 
@@ -509,7 +509,7 @@ class MetricLogger(object):
         loss_str = []
         for name, meter in self.meters.items():
             loss_str.append(
-                '{}: {}'.format(name, str(meter))
+                '{}={}'.format(name, str(meter))
             )
         return self.delimiter.join(loss_str)
 
@@ -533,20 +533,20 @@ class MetricLogger(object):
             log_msg = self.delimiter.join([
                 header,
                 '[{0' + space_fmt + '}/{1}]',
-                'eta: {eta}',
+                'eta={eta}',
                 '{meters}',
-                'time: {time}',
-                'data: {data}',
-                'max mem: {memory:.0f}'
+                'time={time}',
+                'data={data}',
+                'max_mem={memory:.0f}',
             ])
         else:
             log_msg = self.delimiter.join([
                 header,
                 '[{0' + space_fmt + '}/{1}]',
-                'eta: {eta}',
+                'eta={eta}',
                 '{meters}',
-                'time: {time}',
-                'data: {data}'
+                'time={time}',
+                'data={data}',
             ])
         MB = 1024.0 * 1024.0
         for obj in iterable:

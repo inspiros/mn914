@@ -303,12 +303,12 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
           G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, metrics: Dict, params: argparse.Namespace):
     header = 'Train'
-    metric_logger = utils.MetricLogger(delimiter='  ')
+    metric_logger = utils.MetricLogger()
     G.train()
 
     base_lr = optimizer.param_groups[0]['lr']
     m = key.repeat(params.batch_size, 1)
-    for it in metric_logger.log_every(range(params.steps), params.log_freq, header):
+    for it in metric_logger.log_every(range(1, params.steps + 1), params.log_freq, header):
         utils.adjust_learning_rate(optimizer, it, params.steps, params.warmup_steps, base_lr)
         # random latent vector
         z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device)  # b z 1 1
@@ -337,27 +337,26 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
         word_accs = (bit_accs == 1)  # b
         log_stats = {
-            'iteration': it,
+            'lr': optimizer.param_groups[0]['lr'],
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
             'loss_d': itemize(loss_d),
             'bit_acc_avg': bit_accs.mean().item(),
             'word_acc_avg': word_accs.float().mean().item(),
-            'lr': optimizer.param_groups[0]['lr'],
         }
-        if params.log_train_metrics and (it + 1) % 100 == 0:
+        if params.log_train_metrics and it % 100 == 0:
             log_stats.update({
                 **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()}
             })
 
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
-        if (it + 1) % params.log_freq == 0:
+        if it % params.log_freq == 0:
             print(json.dumps(log_stats))
 
         # save images during training
-        if (it + 1) % params.save_img_freq == 0:
+        if it % params.save_img_freq == 0:
             save_image(torch.clamp(params.denormalize(x0), 0, 1),
                        os.path.join(params.imgs_dir, f'{it:05d}_train_x0.png'), nrow=8)
             save_image(torch.clamp(params.denormalize(x_w), 0, 1),
@@ -371,13 +370,13 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
         key: torch.Tensor, eval_attacks: Dict, metrics: Dict, params: argparse.Namespace):
     header = 'Eval'
-    metric_logger = utils.MetricLogger(delimiter='  ')
+    metric_logger = utils.MetricLogger()
     G.eval()
 
     m = key.repeat(params.batch_size, 1)
     # assuring same latent vectors generated
     generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
-    for it in metric_logger.log_every(range(params.eval_steps), params.log_freq, header):
+    for it in metric_logger.log_every(range(1, params.eval_steps + 1), params.log_freq, header):
         # random latent vector
         z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device, generator=generator)  # b z 1 1
         # decode latents with original and fine-tuned decoder
@@ -385,7 +384,6 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
         x_w = G(z)  # b z 1 1 -> b c h w
 
         log_stats = {
-            'iteration': it,
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
         for name, attack in eval_attacks.items():
@@ -399,7 +397,7 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if it == 0:
+        if it == 1:
             save_image(torch.clamp(params.denormalize(x0), 0, 1),
                        os.path.join(params.imgs_dir, f'{it:05d}_val_x0.png'), nrow=8)
             save_image(torch.clamp(params.denormalize(x_w), 0, 1),

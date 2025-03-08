@@ -100,7 +100,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--bn_momentum', type=float, default=0.01,
                    help='Momentum of the batch normalization layer. (Default: 0.1)')
     g.add_argument('--eval_freq', default=10, type=int)
-    g.add_argument('--log_train_metrics', type=utils.bool_inst, default=False)
     g.add_argument('--saveckp_freq', default=100, type=int)
     g.add_argument('--saveimg_freq', default=10, type=int)
     g.add_argument('--resume_from', default=None, type=str,
@@ -425,7 +424,7 @@ def main():
             params.resume_from,
             encoder_decoder=encoder_decoder
         )
-    to_restore = {'epoch': 0}
+    to_restore = {'epoch': 1}
     utils.restart_from_checkpoint(
         os.path.join(params.output_dir, 'checkpoint.pth'),
         run_variables=to_restore,
@@ -451,7 +450,7 @@ def main():
     print('training...')
     start_time = time.time()
     best_bit_acc = 0
-    for epoch in range(start_epoch, params.epochs):
+    for epoch in range(start_epoch, params.epochs + 1):
         if params.dist:
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
@@ -460,10 +459,14 @@ def main():
                                       scheduler, metrics, epoch, params)
         log_stats = {'epoch': epoch, **{f'train_{k}': v for k, v in train_stats.items()}}
 
-        if (epoch + 1) % params.eval_freq == 0:
+        if epoch % params.eval_freq == 0:
             val_stats = eval_one_epoch(encoder_decoder, val_loader, message_loss, image_loss,
                                        epoch, eval_attacks, metrics, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
+
+        if utils.is_main_process():
+            with (Path(params.output_dir) / 'log.txt').open('a') as f:
+                f.write(json.dumps(log_stats) + '\n')
 
         save_dict = {
             'encoder_decoder': encoder_decoder.state_dict(),
@@ -472,11 +475,8 @@ def main():
             'params': params,
         }
         utils.save_on_master(save_dict, os.path.join(params.output_dir, 'checkpoint.pth'))
-        if params.saveckp_freq and (epoch + 1) % params.saveckp_freq == 0:
+        if (params.saveckp_freq and epoch % params.saveckp_freq == 0) or epoch == params.epochs:
             utils.save_on_master(save_dict, os.path.join(params.output_dir, f'checkpoint{epoch:03d}.pth'))
-        if utils.is_main_process():
-            with (Path(params.output_dir) / 'log.txt').open('a') as f:
-                f.write(json.dumps(log_stats) + '\n')
 
     total_time = time.time() - start_time
     print(f'Training time {datetime.timedelta(seconds=int(total_time))}')
@@ -498,7 +498,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         scheduler.step(epoch)
     encoder_decoder.train()
     header = f'Train - Epoch: [{epoch}/{params.epochs}]'
-    metric_logger = utils.MetricLogger(delimiter='  ')
+    metric_logger = utils.MetricLogger()
 
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
@@ -520,20 +520,19 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         # stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
-        diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
-        bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
-        word_accs = (bit_accs == 1)  # b
+        bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
+        word_accs = bit_accs == 1  # b
         norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
+            'lr': optimizer.param_groups[0]['lr'],
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
-            'lr': optimizer.param_groups[0]['lr'],
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),
         }
-        if params.log_train_metrics and (epoch + 1) % params.eval_freq == 0:
+        if epoch % params.eval_freq == 0:
             log_stats.update({
                 **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()}
             })
@@ -542,7 +541,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if (epoch + 1) % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
+        if epoch % params.saveimg_freq == 0 and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
                        os.path.join(params.imgs_dir, f'{epoch:03d}_train_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
@@ -564,7 +563,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
     """
     encoder_decoder.eval()
     header = f'Eval - Epoch: [{epoch}/{params.epochs}]'
-    metric_logger = utils.MetricLogger(delimiter='  ')
+    metric_logger = utils.MetricLogger()
 
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
@@ -581,8 +580,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         # stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
-        diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
-        bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
+        bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
         word_accs = (bit_accs == 1)  # b
         norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
@@ -605,7 +603,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if (params.eval_only or (epoch + 1) % params.saveimg_freq == 0) and it == 0 and utils.is_main_process():
+        if (params.eval_only or epoch % params.saveimg_freq == 0) and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
