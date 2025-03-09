@@ -9,7 +9,7 @@
 torchrun --nproc_per_node=2 main.py \
     --local_rank 0 \
     --encoder vit --encoder_depth 12 --encoder_channels 384 --use_tanh True \
-    --loss_margin 100 --scaling_w 0.5 \
+    --scaling_w 0.5 \
     --batch_size 16 --eval_freq 10 \
     --attenuation jnd \
     --epochs 100 --optimizer 'AdamW,lr=1e-4'
@@ -22,7 +22,7 @@ Args Inventory:
     --num_bits 64 --redundancy 16 \
     --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
     --encoder vit --encoder_depth 12 --encoder_channels 384 --use_tanh True \
-    --loss_margin 100   --attenuation jnd --batch_size 16 --eval_freq 10 --local_rank 0 \
+    --attenuation jnd --batch_size 16 --eval_freq 10 --local_rank 0 \
     --p_crop 0 --p_rot 0 --p_color_jitter 0 --p_blur 0 --p_jpeg 0 --p_resize 0 \
 
 """
@@ -99,7 +99,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--bn_momentum', type=float, default=0.01,
                    help='Momentum of the batch normalization layer. (Default: 0.1)')
     g.add_argument('--eval_freq', default=10, type=int)
-    g.add_argument('--saveckp_freq', default=100, type=int)
+    g.add_argument('--saveckpt_freq', default=100, type=int)
     g.add_argument('--saveimg_freq', default=10, type=int)
     g.add_argument('--resume_from', default=None, type=str,
                    help='Checkpoint path to resume from.')
@@ -115,20 +115,24 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Number of epochs for image loss-only pretraining. (Default: 0)')
     g.add_argument('--optimizer', type=str, default='Adam',
                    help='Optimizer to use. (Default: Adam)')
-    g.add_argument('--scheduler', type=str, default=None,
+    g.add_argument('--scheduler', type=utils.nullable(str), default=None,
                    help='Scheduler to use. (Default: None)')
+
+    g.add_argument('--loss_w', type=str, default='bce',
+                   help='Message Loss: bce | mse | cossim')
+    g.add_argument('--loss_i', type=str, default='mse',
+                   help='Image Loss: mse (Default: mse)')
+    g.add_argument('--loss_p', type=utils.nullable(str), default=None,
+                   help='Perceptual Loss: lpips | watson-dft | watson-dct | watson-vgg (Default: none)')
+    g.add_argument('--loss_p_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
+                   help='Pretrained weights dir for perceptual loss.')
+
     g.add_argument('--lambda_w', type=float, default=1.0,
                    help='Weight of the watermark loss. (Default: 1.0)')
     g.add_argument('--lambda_i', type=float, default=0.0,
                    help='Weight of the image loss. (Default: 0.0)')
-    g.add_argument('--loss_margin', type=float, default=1,
-                   help='Margin of the Hinge loss or temperature of the sigmoid of the BCE loss. (Default: 1.0)')
-    g.add_argument('--loss_w', type=str, default='bce',
-                   help='Loss type. "bce" for binary cross entropy, "cossim" for cosine similarity (Default: bce)')
-    g.add_argument('--loss_i', type=str, default='mse',
-                   help='Loss type. "mse" for mean squared error, "l1" for l1 loss (Default: mse)')
-    g.add_argument('--loss_i_dir', type=str, default=os.path.join(project_root, 'ckpts/loss'),
-                   help='Pretrained weights dir for image loss.')
+    g.add_argument('--lambda_p', type=float, default=1.0,
+                   help='Weight of the perceptual loss. (Default: 1.0)')
 
     g = parser.add_argument_group('Loader parameters')
     g.add_argument('--batch_size', type=int, default=64, help='Batch size. (Default: 64)')
@@ -136,7 +140,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Number of workers for data loading. (Default: 8)')
 
     g = parser.add_argument_group('Attenuation parameters')
-    g.add_argument('--attenuation', type=str, default=None,
+    g.add_argument('--attenuation', type=utils.nullable(str), default=None,
                    help='Attenuation type. (Default: None)')
     g.add_argument('--scale_channels', type=utils.bool_inst, default=False,
                    help='Use channel scaling. (Default: False)')
@@ -171,26 +175,16 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     if params.exp is not None:
         params.output_dir = os.path.join(params.output_dir, params.exp)
-
-    # handle params that are 'none'
-    if params.attenuation is not None:
-        if params.attenuation.lower() == 'none':
-            params.attenuation = None
-    if params.scheduler is not None:
-        if params.scheduler.lower() == 'none':
-            params.scheduler = None
     if (params.data_mean is None) ^ (params.data_std is None):
         raise ValueError('Data mean and std are both required.')
 
+    if params.dist:
+        params.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
     # Print the arguments
     if verbose:
-        print('__git__:{}'.format(utils.get_sha()))
-        print('__log__:{}'.format(json.dumps(vars(params))))
-
-    if params.dist:
-        params.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    else:
-        params.device = torch.device(params.device) if torch.cuda.is_available() else torch.device('cpu')
+        print('git:', utils.get_sha())
+        print(json.dumps(vars(params)))
 
     return params
 
@@ -211,19 +205,21 @@ def main():
         torch.cuda.manual_seed_all(seed)
         np.random.seed(seed)
 
-    # Normalization
-    params.normalize = hidden_attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
-    params.denormalize = hidden_attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
-
     # Create output dirs
     if not os.path.exists(params.output_dir):
         os.makedirs(params.output_dir)
     params.imgs_dir = os.path.join(params.output_dir, 'imgs')
     os.makedirs(params.imgs_dir, exist_ok=True)
+    with open(os.path.join(params.output_dir, 'params.json'), 'w') as f:
+        json.dump(vars(params), f)
+
+    # Normalization
+    params.normalize = hidden_attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
+    params.denormalize = hidden_attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
 
     # Data loaders
     train_transform = tv_transforms.Compose([
-        tv_transforms.RandomResizedCrop(params.img_size),
+        tv_transforms.RandomResizedCrop(params.img_size, scale=(0.5, 1.0)),
         tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         tv_transforms.RandomHorizontalFlip(),
         tv_transforms.ToTensor(),
@@ -328,31 +324,36 @@ def main():
 
     print(f'Losses: {params.loss_w} and {params.loss_i}')
     if params.loss_w == 'mse':
-        message_loss = lambda m_hat, m: torch.mean((m_hat * params.loss_margin - (2 * m - 1)) ** 2)  # b k - b k
+        message_loss = lambda m_hat, m: torch.mean((m_hat - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
-        message_loss = lambda m_hat, m: torch.nn.functional.binary_cross_entropy_with_logits(
-            m_hat * params.loss_margin, m, reduction='mean')
+        message_loss = lambda m_hat, m: torch.nn.functional.binary_cross_entropy_with_logits(m_hat, m, reduction='mean')
     else:
         raise ValueError(f'Unknown message loss: {params.loss_w}')
 
-    provider = LossProvider(params.loss_i_dir)
-    colorspace = 'LA' if params.img_channels == 1 else 'RGB'
     if params.loss_i == 'mse':
         image_loss = lambda x_w, x0: torch.mean((x_w - x0) ** 2)
-    elif params.loss_i == 'watson-dft':
-        loss_perceptual = provider.get_loss_function(
-            'Watson-DFT', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
-        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
-    elif params.loss_i == 'watson-vgg':
-        loss_perceptual = provider.get_loss_function(
-            'Watson-VGG', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
-        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
-    elif params.loss_i == 'ssim':
-        loss_perceptual = provider.get_loss_function(
-            'SSIM', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
-        image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
     else:
         raise ValueError(f'Unknown image loss: {params.loss_i}')
+
+    if params.loss_p is not None:
+        provider = LossProvider(params.loss_p_dir)
+        colorspace = 'LA' if params.img_channels == 1 else 'RGB'
+        if params.loss_p == 'watson-dft':
+            loss_func = provider.get_loss_function(
+                'Watson-DFT', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
+            perceptual_loss = lambda x_w, x0: loss_func((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
+        elif params.loss_p == 'watson-vgg':
+            loss_func = provider.get_loss_function(
+                'Watson-VGG', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
+            perceptual_loss = lambda x_w, x0: loss_func((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
+        elif params.loss_p == 'ssim':
+            loss_func = provider.get_loss_function(
+                'SSIM', colorspace=colorspace, pretrained=True, reduction='sum').to(params.device)
+            perceptual_loss = lambda x_w, x0: loss_func((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
+        else:
+            raise ValueError(f'Unknown perceptual loss: {params.loss_p}')
+    else:
+        perceptual_loss = None
 
     # attacks
     eval_attacks = {
@@ -454,13 +455,15 @@ def main():
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
 
-        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer, message_loss, image_loss,
+        train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer,
+                                      message_loss, image_loss, perceptual_loss,
                                       scheduler, metrics, epoch, params)
         log_stats = {'epoch': epoch, **{f'train_{k}': v for k, v in train_stats.items()}}
 
         if epoch % params.eval_freq == 0 or epoch == params.epochs:
-            val_stats = eval_one_epoch(encoder_decoder, val_loader, message_loss, image_loss,
-                                       epoch, eval_attacks, metrics, params)
+            val_stats = eval_one_epoch(encoder_decoder, val_loader,
+                                       message_loss, image_loss, perceptual_loss,
+                                       eval_attacks, metrics, epoch, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
 
         if utils.is_main_process():
@@ -474,7 +477,7 @@ def main():
             'params': params,
         }
         utils.save_on_master(save_dict, os.path.join(params.output_dir, 'checkpoint.pth'))
-        if (params.saveckp_freq and epoch % params.saveckp_freq == 0) or epoch == params.epochs:
+        if (params.saveckpt_freq and epoch % params.saveckpt_freq == 0) or epoch == params.epochs:
             utils.save_on_master(save_dict, os.path.join(params.output_dir, f'checkpoint{epoch:03d}.pth'))
 
     total_time = time.time() - start_time
@@ -489,7 +492,8 @@ def itemize(tensor):
 
 # noinspection DuplicatedCode
 def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
-                    message_loss, image_loss, scheduler, metrics, epoch, params):
+                    message_loss, image_loss, perceptual_loss,
+                    scheduler, metrics, epoch, params):
     r"""
     One epoch of training.
     """
@@ -509,7 +513,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
 
         loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i if epoch >= params.pretrain_epochs else loss_i
+        loss_p = perceptual_loss(x_w, x0) if perceptual_loss is not None else 0
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_p * loss_p
 
         # gradient step
         optimizer.zero_grad()
@@ -521,7 +526,6 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
         word_accs = bit_accs == 1  # b
-        norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
             'lr': optimizer.param_groups[0]['lr'],
             'loss': itemize(loss),
@@ -529,7 +533,6 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'loss_i': itemize(loss_i),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
-            'norm_avg': torch.mean(norm).item(),
         }
         # if epoch % params.eval_freq == 0 or epoch == params.epochs:
         log_stats.update({
@@ -556,7 +559,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
 # noinspection DuplicatedCode
 @torch.no_grad()
 def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
-                   message_loss, image_loss, epoch, eval_attacks, metrics, params):
+                   message_loss, image_loss, perceptual_loss,
+                   eval_attacks, metrics, epoch, params):
     r"""
     One epoch of eval.
     """
@@ -574,21 +578,20 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
 
         loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i if epoch >= params.pretrain_epochs else loss_i
+        loss_p = perceptual_loss(x_w, x0) if perceptual_loss is not None else 0
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_p * loss_p
 
         # stats
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
         word_accs = (bit_accs == 1)  # b
-        norm = torch.norm(m_hat, dim=-1, keepdim=True)  # b d -> b 1
         log_stats = {
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
-            'norm_avg': torch.mean(norm).item(),
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
 

@@ -63,6 +63,17 @@ def restart_from_checkpoint(ckp_path, run_variables=None, **kwargs):
                 run_variables[var_name] = checkpoint[var_name]
 
 
+class nullable:
+    def __init__(self, t: type):
+        self.t = t
+
+    def __call__(self, v):
+        if v is not None:
+            if isinstance(v, str) and v.lower() in ['none', 'null']:
+                return None
+        return self.t(v)
+
+
 def bool_inst(v):
     if isinstance(v, bool):
         return v
