@@ -502,11 +502,11 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
     """
     if params.scheduler is not None:
         scheduler.step(epoch)
+    header = f'[Epoch {epoch}/{params.epochs}]'
     encoder_decoder.train()
-    header = f'Train - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger()
 
-    for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
+    for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, f'+ {header}')):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
         m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
@@ -556,7 +556,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
                        os.path.join(params.imgs_dir, f'{epoch:03d}_train_xr.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
-    print('Averaged train stats:', metric_logger)
+    print(f'✔️ {header}', metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -567,11 +567,11 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
     r"""
     One epoch of eval.
     """
+    header = f'[Epoch {epoch}/{params.epochs}]'
     encoder_decoder.eval()
-    header = f'Eval - Epoch: [{epoch}/{params.epochs}]'
     metric_logger = utils.MetricLogger()
 
-    for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, header)):
+    for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, f'- {header}')):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
         m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
@@ -616,7 +616,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
-    print('Averaged eval stats:', metric_logger)
+    print(f'⭕ {header}', metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
