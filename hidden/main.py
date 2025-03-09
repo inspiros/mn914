@@ -303,6 +303,9 @@ def main():
                                        num_bits=params.num_bits * params.redundancy,
                                        channels=params.decoder_channels,
                                        in_channels=params.img_channels)
+    elif params.decoder == 'resnet':
+        decoder = models.resnet18_decoder(num_bits=params.num_bits * params.redundancy,
+                                          img_channels=params.img_channels)
     else:
         raise ValueError('Unknown decoder type')
     print('\ndecoder: \n', decoder)
