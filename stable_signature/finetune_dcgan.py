@@ -13,8 +13,7 @@ from torchvision.utils import save_image
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hidden.ops import attacks
-from hidden.ops.metrics import PSNR, SSIM, LPIPS
+from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics
 from hidden.models.attack_layers import HiddenAttackLayer
 from hidden import transforms as hidden_transforms
 from stable_signature import utils
@@ -129,9 +128,10 @@ def main():
     params = parse_args()
 
     # Set seeds for reproducibility
-    torch.manual_seed(params.seed)
-    torch.cuda.manual_seed_all(params.seed)
-    np.random.seed(params.seed)
+    if params.seed is not None:
+        torch.manual_seed(params.seed)
+        torch.cuda.manual_seed_all(params.seed)
+        np.random.seed(params.seed)
 
     # Normalization
     if params.data_mean is None:
@@ -142,8 +142,8 @@ def main():
         params.data_mean = mean
         params.data_std = std
         del mean, std
-    params.normalize = attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
-    params.denormalize = attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
+    params.normalize = hidden_attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
+    params.denormalize = hidden_attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
 
     # Create output dirs
     if not os.path.exists(params.output_dir):
@@ -228,31 +228,31 @@ def main():
 
     # attacks
     eval_attacks = {
-        'none': attacks.Identity(),
-        'crop_01': attacks.CenterCrop(0.1),
-        'crop_05': attacks.CenterCrop(0.5),
-        'rot_25': attacks.Rotate(25),
-        'rot_90': attacks.Rotate(90),
-        'resize_03': attacks.Resize(0.3),
-        'resize_07': attacks.Resize(0.7),
-        'brightness_1p5': attacks.AdjustBrightness(
+        'none': hidden_attacks.Identity(),
+        'crop_01': hidden_attacks.CenterCrop(0.1),
+        'crop_05': hidden_attacks.CenterCrop(0.5),
+        'rot_25': hidden_attacks.Rotate(25),
+        'rot_90': hidden_attacks.Rotate(90),
+        'resize_03': hidden_attacks.Resize(0.3),
+        'resize_07': hidden_attacks.Resize(0.7),
+        'brightness_1p5': hidden_attacks.AdjustBrightness(
             1.5, mean=params.data_mean, std=params.data_std).to(params.device),
-        'brightness_2': attacks.AdjustBrightness(
+        'brightness_2': hidden_attacks.AdjustBrightness(
             2, mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_80': attacks.JPEGCompress(
+        'jpeg_80': hidden_attacks.JPEGCompress(
             80, mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_50': attacks.JPEGCompress(
+        'jpeg_50': hidden_attacks.JPEGCompress(
             50, mean=params.data_mean, std=params.data_std).to(params.device),
     }
 
     # Construct metrics
     metrics = {
-        'psnr': PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
-        'ssim': SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        'psnr': hidden_metrics.PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
+        'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
     }
     if params.img_channels == 3:
         metrics.update({
-            'lpips': LPIPS(net='alex').to(params.device),
+            'lpips': hidden_metrics.LPIPS(net='alex').to(params.device),
         })
 
     for ii_key in range(params.num_keys):

@@ -8,7 +8,7 @@ import lpips
 from . import functional as F
 
 __all__ = [
-    'PSNR', 'DPSNR', 'SSIM', 'LPIPS',
+    'PSNR', 'DPSNR', 'SSIM', 'MS_SSIM', 'LPIPS',
 ]
 
 
@@ -55,6 +55,12 @@ class SSIM(_DenormalizedMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return F.ssim(x, y, self.mean, self.std)
+
+
+class MS_SSIM(_DenormalizedMetric):
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return F.ms_ssim(x, y, self.mean, self.std)
 
 
 class LPIPS(_BaseMetric):

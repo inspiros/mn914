@@ -46,8 +46,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hidden import models, transforms, utils
 from hidden.models import attenuations, attack_layers
-from hidden.ops import attacks
-from hidden.ops.metrics import PSNR, SSIM, LPIPS
+from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics
 
 from stable_signature.loss.loss_provider import LossProvider
 
@@ -208,10 +207,11 @@ def main():
         # cudnn.deterministic = True
 
     # Set seeds for reproducibility
-    seed = params.seed + utils.get_rank()
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
+    if params.seed is not None:
+        seed = params.seed + utils.get_rank()
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        np.random.seed(seed)
 
     # Normalization
     if params.data_mean is None:
@@ -222,8 +222,8 @@ def main():
         params.data_mean = mean
         params.data_std = std
         del mean, std
-    params.normalize = attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
-    params.denormalize = attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
+    params.normalize = hidden_attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
+    params.denormalize = hidden_attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
 
     # Create output dirs
     if not os.path.exists(params.output_dir):
@@ -363,29 +363,31 @@ def main():
 
     # attacks
     eval_attacks = {
-        'none': attacks.Identity(),
-        'crop_01': attacks.CenterCrop(0.1),
-        'crop_05': attacks.CenterCrop(0.5),
-        'resize_03': attacks.Resize(0.3),
-        'resize_05': attacks.Resize(0.5),
-        'rot_25': attacks.Rotate(25),
-        'rot_90': attacks.Rotate(90),
-        'blur': attacks.GaussianBlur(kernel_size=5, sigma=2.0,
-                                     mean=params.data_mean, std=params.data_std).to(params.device),
-        # 'brightness_2': attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_50': attacks.JPEGCompress(50,
-                                        mean=params.data_mean, std=params.data_std).to(params.device),
+        'none': hidden_attacks.Identity(),
+        'crop_01': hidden_attacks.CenterCrop(0.1),
+        'crop_05': hidden_attacks.CenterCrop(0.5),
+        'resize_03': hidden_attacks.Resize(0.3),
+        'resize_05': hidden_attacks.Resize(0.5),
+        'rot_25': hidden_attacks.Rotate(25),
+        'rot_90': hidden_attacks.Rotate(90),
+        'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=2.0,
+                                            mean=params.data_mean, std=params.data_std).to(params.device),
+        # 'brightness_2': hidden_attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_80': hidden_attacks.JPEGCompress(80,
+                                               mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_50': hidden_attacks.JPEGCompress(50,
+                                               mean=params.data_mean, std=params.data_std).to(params.device),
     }
     eval_attacks = {k: attack_layers.wrap_attack(v, False) for k, v in eval_attacks.items()}
 
     # Construct metrics
     metrics = {
-        'psnr': PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
-        'ssim': SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        'psnr': hidden_metrics.PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
+        'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
     }
     if params.img_channels == 3:
         metrics.update({
-            'lpips': LPIPS(net='alex').to(params.device),
+            'lpips': hidden_metrics.LPIPS(net='alex').to(params.device),
         })
 
     # Create encoder/decoder
