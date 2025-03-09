@@ -8,7 +8,7 @@ import lpips
 from . import functional as F
 
 __all__ = [
-    'PSNR', 'DPSNR', 'SSIM', 'MS_SSIM', 'LPIPS',
+    'PSNR', 'DataPSNR', 'SSIM', 'DataSSIM', 'MS_SSIM', 'DataMS_SSIM', 'LPIPS',
 ]
 
 
@@ -39,28 +39,40 @@ class _DenormalizedMetric(_BaseMetric):
 class PSNR(_DenormalizedMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.psnr(x, y, self.mean, self.std)
+        return F.psnr(x, y, mean=self.mean, std=self.std)
 
 
-class DPSNR(_DenormalizedMetric):
+class DataPSNR(_DenormalizedMetric):
 
     def __init__(self, std: Optional[Tuple[float, ...]] = None) -> None:
         super().__init__(None, std)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.dpsnr(x, y, self.std)
+        return F.data_psnr(x, y, std=self.std)
 
 
 class SSIM(_DenormalizedMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.ssim(x, y, self.mean, self.std)
+        return F.ssim(x, y, mean=self.mean, std=self.std)
+
+
+class DataSSIM(_DenormalizedMetric):
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return F.data_ssim(x, y, std=self.std)
 
 
 class MS_SSIM(_DenormalizedMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.ms_ssim(x, y, self.mean, self.std)
+        return F.ms_ssim(x, y, mean=self.mean, std=self.std)
+
+
+class DataMS_SSIM(_DenormalizedMetric):
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return F.data_ms_ssim(x, y, std=self.std)
 
 
 class LPIPS(_BaseMetric):

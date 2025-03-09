@@ -248,8 +248,12 @@ def main():
     # Construct metrics
     metrics = {
         'psnr': hidden_metrics.PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
-        'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        'ssim': hidden_metrics.SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
     }
+    if params.img_size >= 160:
+        metrics.update({
+            'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        })
     if params.img_channels == 3:
         metrics.update({
             'lpips': hidden_metrics.LPIPS(net='alex').to(params.device),

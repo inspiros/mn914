@@ -383,8 +383,12 @@ def main():
     # Construct metrics
     metrics = {
         'psnr': hidden_metrics.PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
-        'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        'ssim': hidden_metrics.SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
     }
+    if params.img_size >= 160:
+        metrics.update({
+            'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        })
     if params.img_channels == 3:
         metrics.update({
             'lpips': hidden_metrics.LPIPS(net='alex').to(params.device),
@@ -461,7 +465,7 @@ def main():
                                       scheduler, metrics, epoch, params)
         log_stats = {'epoch': epoch, **{f'train_{k}': v for k, v in train_stats.items()}}
 
-        if epoch % params.eval_freq == 0:
+        if epoch % params.eval_freq == 0 or epoch == params.epochs:
             val_stats = eval_one_epoch(encoder_decoder, val_loader, message_loss, image_loss,
                                        epoch, eval_attacks, metrics, params)
             log_stats = {**log_stats, **{f'val_{k}': v for k, v in val_stats.items()}}
@@ -534,7 +538,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),
         }
-        if epoch % params.eval_freq == 0:
+        if epoch % params.eval_freq == 0 or epoch == params.epochs:
             log_stats.update({
                 **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()}
             })
