@@ -531,6 +531,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
+            'loss_p': itemize(loss_p),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
         }
@@ -590,6 +591,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
+            'loss_p': itemize(loss_p),
             'bit_acc_avg': torch.mean(bit_accs).item(),
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
@@ -608,7 +610,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         if (params.eval_only or epoch % params.saveimg_freq == 0) and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
-            save_image(params.denormalize(x_w) if params.generate_delta else x_w / 2 + 1,
+            save_image(params.denormalize(x_w),
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
