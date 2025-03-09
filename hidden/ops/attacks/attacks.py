@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Union
+from typing import List, Tuple, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -12,7 +12,6 @@ __all__ = [
     'ImageDenormalize',
     'RoundPixel',
     'ClampPixel',
-    'ProjectLinf',
     'CenterCrop',
     'Resize',
     'Rotate',
@@ -44,11 +43,11 @@ class _DenormalizedAttack(_BaseAttack):
         if mean is None:
             self.register_buffer('mean', None)
         else:
-            self.register_buffer('mean', torch.tensor(mean, dtype=torch.float32))
+            self.register_buffer('mean', torch.as_tensor(mean, dtype=torch.float32))
         if std is None:
             self.register_buffer('std', None)
         else:
-            self.register_buffer('std', torch.tensor(std, dtype=torch.float32))
+            self.register_buffer('std', torch.as_tensor(std, dtype=torch.float32))
 
 
 class ImageNormalize(_DenormalizedAttack):
@@ -69,17 +68,6 @@ class RoundPixel(_DenormalizedAttack):
 class ClampPixel(_DenormalizedAttack):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.clamp_pixel(x, self.mean, self.std)
-
-
-class ProjectLinf(_DenormalizedAttack):
-    def __init__(self, radius: float,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
-        super().__init__(mean, std)
-        self.radius = radius
-
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.project_linf(x, y, self.radius, self.std)
 
 
 class CenterCrop(_BaseAttack):
@@ -134,7 +122,7 @@ class AdjustContrast(_DenormalizedAttack):
 
 
 class GaussianBlur(_DenormalizedAttack):
-    def __init__(self, kernel_size: int, sigma: float = 1.,
+    def __init__(self, kernel_size: Union[List[int], int], sigma: Optional[Union[List[float], float]] = 1.,
                  mean: Optional[Tuple[float, ...]] = None,
                  std: Optional[Tuple[float, ...]] = None) -> None:
         super().__init__(mean, std)

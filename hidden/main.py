@@ -17,7 +17,7 @@ torchrun --nproc_per_node=2 main.py \
 Args Inventory:
     --dist False \
     --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
-    --batch_size 128 --batch_size_eval 128 --workers 8 \
+    --batch_size 128 --workers 8 \
     --attenuation jnd \
     --num_bits 64 --redundancy 16 \
     --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
@@ -44,9 +44,9 @@ from torchvision.utils import save_image
 # add hidden path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hidden import models, transforms, utils
+from hidden import models, utils
 from hidden.models import attenuations, attack_layers
-from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics
+from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics, transforms as hidden_transforms
 
 from stable_signature.loss.loss_provider import LossProvider
 
@@ -131,8 +131,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Pretrained weights dir for image loss.')
 
     g = parser.add_argument_group('Loader parameters')
-    g.add_argument('--batch_size', type=int, default=16, help='Batch size. (Default: 16)')
-    g.add_argument('--batch_size_eval', type=int, default=64, help='Batch size. (Default: 128)')
+    g.add_argument('--batch_size', type=int, default=64, help='Batch size. (Default: 64)')
     g.add_argument('--workers', type=int, default=8,
                    help='Number of workers for data loading. (Default: 8)')
 
@@ -159,7 +158,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Probability of the color jitter augmentation. (Default: 0.5)')
 
     g = parser.add_argument_group('Distributed training parameters')
-    g.add_argument('--debug_slurm', action='store_true')
     g.add_argument('--local_rank', default=-1, type=int)
     g.add_argument('--master_port', default=-1, type=int)
     g.add_argument('--dist', type=utils.bool_inst, default=False,
@@ -214,14 +212,6 @@ def main():
         np.random.seed(seed)
 
     # Normalization
-    if params.data_mean is None:
-        try:
-            mean, std = transforms.get_dataset_stats(params.dataset, strict=True)
-        except KeyError:
-            mean, std = transforms.get_dataset_stats_from_channels(params.img_channels)
-        params.data_mean = mean
-        params.data_std = std
-        del mean, std
     params.normalize = hidden_attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
     params.denormalize = hidden_attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
 
@@ -237,25 +227,25 @@ def main():
         tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         tv_transforms.RandomHorizontalFlip(),
         tv_transforms.ToTensor(),
-        transforms.Normalize(params.data_mean, params.data_std),
+        hidden_transforms.Normalize(params.data_mean, params.data_std),
     ])
     val_transform = tv_transforms.Compose([
         tv_transforms.Resize(params.img_size),
         tv_transforms.CenterCrop(params.img_size),
         tv_transforms.ToTensor(),
-        transforms.Normalize(params.data_mean, params.data_std),
+        hidden_transforms.Normalize(params.data_mean, params.data_std),
     ])
     if params.dataset is not None:
         train_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=True,
                                             transform=train_transform, batch_size=params.batch_size,
                                             num_workers=params.workers, shuffle=True)
         val_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=False,
-                                          transform=val_transform, batch_size=params.batch_size_eval,
+                                          transform=val_transform, batch_size=params.batch_size,
                                           num_workers=params.workers, shuffle=False)
     else:
         train_loader = utils.get_dataloader(params.train_dir, transform=train_transform, batch_size=params.batch_size,
                                             num_workers=params.workers, shuffle=True)
-        val_loader = utils.get_dataloader(params.val_dir, transform=val_transform, batch_size=params.batch_size_eval,
+        val_loader = utils.get_dataloader(params.val_dir, transform=val_transform, batch_size=params.batch_size,
                                           num_workers=params.workers, shuffle=False)
 
     # Input shape
@@ -319,7 +309,7 @@ def main():
     # Construct attenuation
     if params.attenuation == 'jnd':
         attenuation = attenuations.JND(
-            preprocess=transforms.Denormalize(params.data_mean, params.data_std)).to(params.device)
+            preprocess=hidden_attacks.ImageDenormalize(params.data_mean, params.data_std)).to(params.device)
     else:
         attenuation = None
 
@@ -334,7 +324,7 @@ def main():
         data_aug = attack_layers.Identity().to(params.device)
     else:
         raise ValueError('Unknown data augmentation type')
-    print('data augmentation:', data_aug)
+    print('Data augmentation:', data_aug)
 
     print(f'Losses: {params.loss_w} and {params.loss_i}')
     if params.loss_w == 'mse':
@@ -456,9 +446,9 @@ def main():
                 f.write(json.dumps(log_stats) + '\n')
         exit()
 
+    # train loop
     print('training...')
     start_time = time.time()
-    best_bit_acc = 0
     for epoch in range(start_epoch, params.epochs + 1):
         if params.dist:
             train_loader.sampler.set_epoch(epoch)
@@ -541,10 +531,10 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
             'norm_avg': torch.mean(norm).item(),
         }
-        if epoch % params.eval_freq == 0 or epoch == params.epochs:
-            log_stats.update({
-                **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()}
-            })
+        # if epoch % params.eval_freq == 0 or epoch == params.epochs:
+        log_stats.update({
+            **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()}
+        })
 
         torch.cuda.synchronize()
         for name, loss in log_stats.items():
@@ -615,7 +605,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         if (params.eval_only or epoch % params.saveimg_freq == 0) and it == 0 and utils.is_main_process():
             save_image(params.denormalize(x0),
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
-            save_image(params.denormalize(x_w),
+            save_image(params.denormalize(x_w) if params.generate_delta else x_w / 2 + 1,
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()

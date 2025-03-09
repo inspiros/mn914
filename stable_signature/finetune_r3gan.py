@@ -15,7 +15,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics
 from hidden.models.attack_layers import HiddenAttackLayer
-from hidden import transforms as hidden_transforms
 from stable_signature import utils
 from stable_signature.models import hidden_utils
 from stable_signature.models import r3gan
@@ -132,14 +131,6 @@ def main():
         np.random.seed(params.seed)
 
     # Normalization
-    if params.data_mean is None:
-        try:
-            mean, std = hidden_transforms.get_dataset_stats(params.dataset, strict=True)
-        except KeyError:
-            mean, std = hidden_transforms.get_dataset_stats_from_channels(3)
-        params.data_mean = mean
-        params.data_std = std
-        del mean, std
     params.normalize = hidden_attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
     params.denormalize = hidden_attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
 

@@ -1,5 +1,5 @@
 import math
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import torch
 from torchvision.transforms import functional as F_tv
@@ -14,7 +14,6 @@ __all__ = [
     'to_tensor_img',
     'round_pixel',
     'clamp_pixel',
-    'project_linf',
     'center_crop',
     'resize',
     'rotate',
@@ -32,23 +31,23 @@ __all__ = [
 def normalize_img(x: torch.Tensor,
                   mean: Optional[torch.Tensor] = None,
                   std: Optional[torch.Tensor] = None) -> torch.Tensor:
-    r""" Normalize image to approx. [-1, 1] """
+    r""" Normalize image from [0, 1] to [-1, 1] """
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
-    if mean is None:
-        return x
-    return (x - mean.view(-1, 1, 1)) / std.view(-1, 1, 1)
+    mean = mean.view(-1, 1, 1) if mean is not None else 0.5
+    std = std.view(-1, 1, 1) if std is not None else 0.5
+    return (x - mean) / std
 
 
 def denormalize_img(x: torch.Tensor,
                     mean: Optional[torch.Tensor] = None,
                     std: Optional[torch.Tensor] = None) -> torch.Tensor:
-    r""" Denormalize image to [0, 1] """
+    r""" Denormalize image from [-1, 1] to [0, 1] """
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
-    if mean is None:
-        return x
-    return (x * std.view(-1, 1, 1)) + mean.view(-1, 1, 1)
+    mean = mean.view(-1, 1, 1) if mean is not None else 0.5
+    std = std.view(-1, 1, 1) if std is not None else 0.5
+    return x * std + mean
 
 
 def to_tensor_img(x: torch.Tensor,
@@ -69,15 +68,14 @@ def round_pixel(x: torch.Tensor,
     Round pixel values to nearest integer.
 
     Args:
-        x: Image tensor with values approx. between [-1,1]
+        x: Image tensor with values between [-1,1]
         mean: Dataset mean
         std: Dataset std
 
     Returns:
-        y: Rounded image tensor with values approx. between [-1,1]
+        y: Rounded image tensor with values between [-1,1]
     """
-    x_pixel = 255 * denormalize_img(x, mean=mean, std=std)
-    y_pixel = torch.round(x_pixel).clamp(0, 255)
+    y_pixel = to_tensor_img(x, mean=mean, std=std)
     return normalize_img(y_pixel / 255.0, mean=mean, std=std)
 
 
@@ -88,36 +86,16 @@ def clamp_pixel(x: torch.Tensor,
     Clamp pixel values to 0 255.
 
     Args:
-        x: Image tensor with values approx. between [-1,1]
+        x: Image tensor with values between [-1,1]
         mean: Dataset mean
         std: Dataset std
 
     Returns:
-        y: Rounded image tensor with values approx. between [-1,1]
+        y: Rounded image tensor with values between [-1,1]
     """
     x_pixel = 255 * denormalize_img(x, mean=mean, std=std)
     y_pixel = x_pixel.clamp(0, 255)
     return normalize_img(y_pixel / 255.0, mean=mean, std=std)
-
-
-def project_linf(x: torch.Tensor, y: torch.Tensor, radius: float,
-                 std: Optional[torch.Tensor] = None) -> torch.Tensor:
-    r"""
-    Clamp x so that Linf(x,y)<=radius
-
-    Args:
-        x: Image tensor with values approx. between [-1,1]
-        y: Image tensor with values approx. between [-1,1], ex: original image
-        radius: Radius of Linf ball for the images in pixel space [0, 255]
-        std: Dataset std
-     """
-    if std is None:
-        std = x.new_ones(x.size(-3), 1, 1)
-    delta = x - y
-    delta = 255 * (delta * std.view(-1, 1, 1))
-    delta = torch.clamp(delta, -radius, radius)
-    delta = (delta / 255.0) / std.view(-1, 1, 1)
-    return y + delta
 
 
 def crop(x: torch.Tensor,
@@ -178,7 +156,7 @@ def adjust_brightness(x: torch.Tensor,
     r""" Adjust brightness of an image
 
     Args:
-        x: PIL image
+        x: Image tensor with values between [-1,1]
         brightness_factor: brightness factor
         mean: Dataset mean
         std: Dataset std
@@ -195,7 +173,7 @@ def adjust_contrast(x: torch.Tensor,
     r""" Adjust constrast of an image
 
     Args:
-        x: PIL image
+        x: Image tensor with values between [-1,1]
         contrast_factor: contrast factor
         mean: Dataset mean
         std: Dataset std
@@ -205,13 +183,13 @@ def adjust_contrast(x: torch.Tensor,
     return normalize_img(y_pixel, mean=mean, std=std)
 
 
-def gaussian_blur(x: torch.Tensor, kernel_size: int, sigma: float = 1.,
+def gaussian_blur(x: torch.Tensor, kernel_size: Union[List[int], int], sigma: Optional[Union[List[float], float]] = 1.,
                   mean: Optional[torch.Tensor] = None,
                   std: Optional[torch.Tensor] = None) -> torch.Tensor:
     r""" Add gaussian blur to image
 
     Args:
-        x: Tensor image
+        x: Image tensor with values between [-1,1]
         kernel_size: Gaussian kernel size
         sigma: sigma of Gaussian kernel
         mean: Dataset mean
@@ -222,13 +200,14 @@ def gaussian_blur(x: torch.Tensor, kernel_size: int, sigma: float = 1.,
     return normalize_img(y_pixel, mean=mean, std=std)
 
 
+@torch.no_grad()
 def jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = None,
                   mean: Optional[torch.Tensor] = None,
                   std: Optional[torch.Tensor] = None) -> torch.Tensor:
     r""" Apply jpeg compression to image
 
     Args:
-        x: Tensor image
+        x: Image tensor with values between [-1,1]
         quality_factor: quality factor
         mode: PIL Image mode
         mean: Dataset mean
@@ -254,6 +233,13 @@ def diff_jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str]
                        mean: Optional[torch.Tensor] = None,
                        std: Optional[torch.Tensor] = None) -> torch.Tensor:
     r""" Apply differentiable jpeg compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        quality_factor: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
     """
     with torch.no_grad():
         x_clip = clamp_pixel(x, mean=mean, std=std)
@@ -271,7 +257,7 @@ def watermark_dropout(x: torch.Tensor, x0: torch.Tensor, p: float) -> torch.Tens
 
     Args:
         x: Tensor image
-        x0: Non-encoded Image
+        x0: Non-encoded Tensor image
         p: Probability of dropout
     """
     mask = torch.bernoulli(torch.full_like(x, p)).bool()
@@ -282,6 +268,14 @@ def watermark_cropout(x: torch.Tensor, x0: torch.Tensor,
                       top: Union[float, int], left: Union[float, int],
                       height: Union[float, int], width: Union[float, int]) -> torch.Tensor:
     r""" Crop and only keep a region of watermarked pixels
+
+    Args:
+        x: Tensor image
+        x0: Non-encoded Tensor image
+        top (int): Vertical component of the top left corner of the crop box.
+        left (int): Horizontal component of the top left corner of the crop box.
+        height (int): Height of the crop box.
+        width (int): Width of the crop box.
     """
     mask = torch.ones(x.shape, device=x.device, dtype=torch.bool)
     if isinstance(top, float) or isinstance(left, float) or isinstance(height, float) or isinstance(width, float):

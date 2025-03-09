@@ -25,12 +25,12 @@ Then run:
 
 ```cmd
 python main.py cifar10_unet \
-    --dataset CIFAR10 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] \
-    --img_size 32 --img_channels 3 --num_bits 32 --batch_size 256 --epochs 200 --pretrain_epochs 10 --eval_freq 10 \
+    --dataset CIFAR10 --img_size 32 --img_channels 3 \
+    --num_bits 32 --batch_size 256 --epochs 200 --eval_freq 5 \
     --encoder unet --generate_delta False \
     --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
     --optimizer Lamb,lr=2e-2 \
-    --loss_w bce --loss_i mse --lambda_w 0.05 --lambda_i 1
+    --loss_w bce --loss_i mse --lambda_w 1 --lambda_i 1
 ```
 
 #### 2.2. Finetune GAN on CIFAR10 with Different Configurations
@@ -48,8 +48,8 @@ The watermark extractor used is the pretrained weights published by the authors.
 
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
-    --img_size 32 --num_bits 48 --batch_size 128 \
+    --dataset CIFAR10 --img_size 32 \
+    --num_bits 48 --batch_size 128 \
     --steps 2000 --eval_steps 100 \
     --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
     --msg_decoder_path ../ckpts/hidden_replicate.pth \
@@ -63,8 +63,8 @@ python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
 
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
-    --img_size 32 --num_bits 48 --batch_size 128 \
+    --dataset CIFAR10 --img_size 32 \
+    --num_bits 48 --batch_size 128 \
     --steps 2000 --eval_steps 100 \
     --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
     --msg_decoder_path ../ckpts/hidden_replicate.pth \
@@ -78,8 +78,8 @@ python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
 
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
-    --img_size 32 --num_bits 48 --batch_size 128 \
+    --dataset CIFAR10 --img_size 32 \
+    --num_bits 48 --batch_size 128 \
     --steps 2000 --eval_steps 100 \
     --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
     --msg_decoder_path ../ckpts/hidden_replicate.pth \
@@ -93,8 +93,8 @@ python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
 
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
-    --dataset CIFAR10 --data_mean [0.5,0.5,0.5] --data_std [0.5,0.5,0.5] \
-    --img_size 32 --num_bits 48 --batch_size 128 \
+    --dataset CIFAR10 --img_size 32 \
+    --num_bits 48 --batch_size 128 \
     --steps 2000 --eval_steps 100 \
     --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
     --msg_decoder_path ../ckpts/hidden_replicate.pth \

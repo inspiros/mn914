@@ -44,11 +44,13 @@ class PSNR(_DenormalizedMetric):
 
 class DataPSNR(_DenormalizedMetric):
 
-    def __init__(self, std: Optional[Tuple[float, ...]] = None) -> None:
+    def __init__(self,
+                 mean: Optional[Tuple[float, ...]] = None,
+                 std: Optional[Tuple[float, ...]] = None) -> None:
         super().__init__(None, std)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.data_psnr(x, y, std=self.std)
+        return F.data_psnr(x, y, mean=self.mean, std=self.std)
 
 
 class SSIM(_DenormalizedMetric):
@@ -60,7 +62,7 @@ class SSIM(_DenormalizedMetric):
 class DataSSIM(_DenormalizedMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.data_ssim(x, y, std=self.std)
+        return F.data_ssim(x, y, mean=self.mean, std=self.std)
 
 
 class MS_SSIM(_DenormalizedMetric):
