@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -7,13 +8,73 @@ from ._conv import ConvBNRelu2d, ConvTransposeBNRelu2d
 __all__ = ['AEHidingNetwork', 'UNetHidingNetwork']
 
 
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            mid_channels: Optional[int] = None,
+            downsample: Optional[nn.Module] = None,
+            activation: str = 'gelu') -> None:
+        super(BasicBlock, self).__init__()
+        if mid_channels is None:
+            mid_channels = out_channels
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        if downsample is None and in_channels != out_channels * self.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels * self.expansion, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_channels * self.expansion)
+            )
+        self.downsample = downsample
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class DoubleConv(nn.Module):
+    """(convolution => [BN] => ReLU) * 2"""
+
+    def __init__(self, in_channels: int, out_channels: int, mid_channels: int = None, activation: str = 'gelu'):
+        super().__init__()
+        if not mid_channels:
+            mid_channels = out_channels
+        self.double_conv = nn.Sequential(
+            ConvBNRelu2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False, activation=activation),
+            ConvBNRelu2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False, activation=activation),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.double_conv(x)
+
+
 class Down(nn.Module):
     r"""Downscale with maxpool then conv"""
 
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.downsample = nn.MaxPool2d(2)
-        self.conv = ConvBNRelu2d(in_channels, out_channels, activation='gelu')
+        self.conv = DoubleConv(in_channels, out_channels, activation='gelu')
 
     def forward(self, x):
         x = self.downsample(x)
@@ -27,10 +88,10 @@ class Up(nn.Module):
         super().__init__()
         if use_upsample:
             self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = ConvBNRelu2d(in_channels, out_channels, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2, activation='gelu')
         else:
             self.upsample = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = ConvBNRelu2d(in_channels, out_channels, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, activation='gelu')
 
     @property
     def use_upsample(self) -> bool:
@@ -48,10 +109,10 @@ class UNetUp(nn.Module):
         super().__init__()
         if use_upsample:
             self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = ConvBNRelu2d(in_channels, out_channels, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2, activation='gelu')
         else:
             self.upsample = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = ConvBNRelu2d(in_channels, out_channels, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, activation='gelu')
 
     @property
     def use_upsample(self) -> bool:
@@ -83,19 +144,19 @@ class AEHidingNetwork(nn.Module):
         self.features_level_insertion = features_level_insertion
         self.encoder = nn.Sequential(
             ConvBNRelu2d(in_channels + (num_bits if not features_level_insertion else 0),
-                         16, 3, stride=1, padding=1, activation='gelu'),  # [b, 16, 32, 32]
-            Down(16, 32),  # [b, 32, 16, 16]
-            Down(32, 64),  # [b, 64, 8, 8]
-			Down(64, 128),  # [b, 128, 4, 4]
-			Down(128, 256),  # [b, 256, 2, 2]
+                         32, 3, stride=1, padding=1, activation='gelu'),  # [b, 32, 32, 32]
+            Down(32, 64),  # [b, 64, 16, 16]
+            Down(64, 128),  # [b, 128, 8, 8]
+			Down(128, 256),  # [b, 256, 4, 4]
+			Down(256, 512),  # [b, 512, 2, 2]
         )
         self.decoder = nn.Sequential(
-			Up(256 + (num_bits if features_level_insertion else 0),
-               128, use_upsample=use_upsample),  # [b, 128, 4, 4]
-			Up(128, 64, use_upsample=use_upsample),  # [b, 64, 8, 8]
-			Up(64, 32, use_upsample=use_upsample),  # [b, 32, 16, 16]
-            Up(32, 16, use_upsample=use_upsample),  # [b, 16, 32, 32]
-            nn.Conv2d(16, in_channels, 1, stride=1),  # [b, 3, 32, 32]
+			Up(512 + (num_bits if features_level_insertion else 0),
+               256, use_upsample=use_upsample),  # [b, 256, 4, 4]
+			Up(256, 128, use_upsample=use_upsample),  # [b, 128, 8, 8]
+			Up(128, 64, use_upsample=use_upsample),  # [b, 64, 16, 16]
+            Up(64, 32, use_upsample=use_upsample),  # [b, 32, 32, 32]
+            nn.Conv2d(32, in_channels, 1, stride=1),  # [b, 3, 32, 32]
         )
         self.last_tanh = last_tanh
 
@@ -124,17 +185,17 @@ class UNetHidingNetwork(nn.Module):
                  features_level_insertion: bool = False):
         super(UNetHidingNetwork, self).__init__()
         self.features_level_insertion = features_level_insertion
-        self.in_conv = ConvBNRelu2d(in_channels + (num_bits if not features_level_insertion else 0), 16)
-        self.down1 = Down(16, 32)
-        self.down2 = Down(32, 64)
-        self.down3 = Down(64, 128)
+        self.in_conv = ConvBNRelu2d(in_channels + (num_bits if not features_level_insertion else 0), 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
         factor = 2 if use_upsample else 1
-        self.down4 = Down(128, 256 // factor)
-        self.up1 = UNetUp(256 + (num_bits if features_level_insertion else 0), 128 // factor, use_upsample)
-        self.up2 = UNetUp(128, 64 // factor, use_upsample)
-        self.up3 = UNetUp(64, 32 // factor, use_upsample)
-        self.up4 = UNetUp(32, 16, use_upsample)
-        self.out_conv = nn.Conv2d(16, in_channels, kernel_size=1)
+        self.down4 = Down(512, 1024 // factor)
+        self.up1 = UNetUp(1024 + (num_bits if features_level_insertion else 0), 512 // factor, use_upsample)
+        self.up2 = UNetUp(512, 256 // factor, use_upsample)
+        self.up3 = UNetUp(256, 128 // factor, use_upsample)
+        self.up4 = UNetUp(128, 64, use_upsample)
+        self.out_conv = nn.Conv2d(64, in_channels, kernel_size=1)
 
         self.last_tanh = last_tanh
 
