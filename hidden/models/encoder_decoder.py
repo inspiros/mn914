@@ -25,7 +25,6 @@ class EncoderDecoder(nn.Module):
                  scaling_i: float,
                  scaling_w: float,
                  num_bits: int,
-                 redundancy: int,
                  std: Optional[Tuple[int, ...]] = None):
         super().__init__()
         self.encoder = encoder
@@ -38,7 +37,6 @@ class EncoderDecoder(nn.Module):
         self.scaling_i = scaling_i
         self.scaling_w = scaling_w
         self.num_bits = num_bits
-        self.redundancy = redundancy
         # scaling std
         if std is None:
             self.register_buffer('std', None)
@@ -83,13 +81,14 @@ class EncoderDecoder(nn.Module):
         # attack simulation
         if eval_attack is not None:
             x_r = eval_attack(x_w, x0)
-        else:
+        elif self.training:
             x_r = self.attack_layer(x_w, x0)
+        else:
+            x_r = x_w.clone()
 
         # decode
         m_hat = self.decoder(x_r)  # b c h w -> b d
-        m_hat = m_hat.view(-1, self.num_bits, self.redundancy)  # b k*r -> b k r
-        m_hat = torch.sum(m_hat, dim=-1)  # b k r -> b k
+        m_hat = m_hat.view(-1, self.num_bits)
 
         return m_hat, (x_w, x_r)
 

@@ -70,8 +70,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Marking parameters')
     g.add_argument('--num_bits', type=int, default=32,
                    help='Number of bits of the watermark (Default: 32)')
-    g.add_argument('--redundancy', type=int, default=1,
-                   help='Redundancy of the watermark (Default: 1)')
     g.add_argument('--img_size', type=int, default=28, help='Image size')
     g.add_argument('--img_channels', type=int, default=None, help='Number of image channels.')
 
@@ -145,9 +143,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--scale_channels', type=utils.bool_inst, default=False,
                    help='Use channel scaling. (Default: False)')
 
-    g = parser.add_argument_group('DA parameters')
-    g.add_argument('--data_augmentation', type=str, default='combined',
-                   help='Type of data augmentation to use at marking time. (Default: combined)')
+    g = parser.add_argument_group('Attack layer parameters')
+    g.add_argument('--attack_layer', type=str, default='hidden',
+                   help='Type of data augmentation to use at marking time. (Default: hidden)')
     g.add_argument('--p_crop', type=float, default=0.5,
                    help='Probability of the crop augmentation. (Default: 0.5)')
     g.add_argument('--p_resize', type=float, default=0.5,
@@ -169,7 +167,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--device', type=str, default='cuda:0', help='Device')
 
     g = parser.add_argument_group('Misc')
-    g.add_argument('--seed', default=0, type=int, help='Random seed')
+    g.add_argument('--seed', default=None, type=utils.nullable(int), help='Random seed')
+    g.add_argument('--eval_seed', default=0, type=int, help='Random seed for evaluation')
 
     params = parser.parse_args()
 
@@ -286,11 +285,11 @@ def main():
     print('building decoder...')
     if params.decoder == 'hidden':
         decoder = models.HiddenDecoder(num_blocks=params.decoder_depth,
-                                       num_bits=params.num_bits * params.redundancy,
+                                       num_bits=params.num_bits,
                                        channels=params.decoder_channels,
                                        in_channels=params.img_channels)
     elif params.decoder == 'resnet':
-        decoder = models.resnet18_decoder(num_bits=params.num_bits * params.redundancy,
+        decoder = models.resnet18_decoder(num_bits=params.num_bits,
                                           img_channels=params.img_channels)
     else:
         raise ValueError('Unknown decoder type')
@@ -310,17 +309,13 @@ def main():
         attenuation = None
 
     # Construct data augmentation seen at train time
-    if params.data_augmentation == 'combined':
-        data_aug = attack_layers.HiddenAttackLayer(
-            params.img_size, params.p_crop, params.p_blur, params.p_jpeg,
-            params.p_rot, params.p_color_jitter, params.p_resize).to(params.device)
-    elif params.data_augmentation == 'kornia':
-        data_aug = attack_layers.KorniaAttackLayer().to(params.device)
-    elif params.data_augmentation == 'none':
-        data_aug = attack_layers.Identity().to(params.device)
+    if params.attack_layer == 'hidden':
+        attack_layer = attack_layers.HiddenAttackLayer(params.img_size).to(params.device)
+    elif params.attack_layer == 'none':
+        attack_layer = attack_layers.Identity()
     else:
         raise ValueError('Unknown data augmentation type')
-    print('Data augmentation:', data_aug)
+    print('Attack Layer:', attack_layer)
 
     print(f'Losses: {params.loss_w} and {params.loss_i}')
     if params.loss_w == 'mse':
@@ -364,12 +359,12 @@ def main():
         'resize_05': hidden_attacks.Resize(0.5),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
-        'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=2.0,
-                                            mean=params.data_mean, std=params.data_std).to(params.device),
         # 'brightness_2': hidden_attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_80': hidden_attacks.JPEGCompress(80,
+        'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=0.5,
+                                            mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_90': hidden_attacks.JPEGCompress(90,
                                                mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_50': hidden_attacks.JPEGCompress(50,
+        'jpeg_80': hidden_attacks.JPEGCompress(80,
                                                mean=params.data_mean, std=params.data_std).to(params.device),
     }
     eval_attacks = {k: attack_layers.wrap_attack(v, False) for k, v in eval_attacks.items()}
@@ -391,14 +386,13 @@ def main():
     # Create encoder/decoder
     encoder_decoder = models.EncoderDecoder(encoder=encoder,
                                             attenuation=attenuation,
-                                            attack_layer=data_aug,
+                                            attack_layer=attack_layer,
                                             decoder=decoder,
                                             generate_delta=params.generate_delta,
                                             scale_channels=params.scale_channels,
                                             scaling_i=params.scaling_i,
                                             scaling_w=params.scaling_w,
                                             num_bits=params.num_bits,
-                                            redundancy=params.redundancy,
                                             std=params.data_std if params.scale_channels else None)
     encoder_decoder = encoder_decoder.to(params.device)
 
@@ -506,7 +500,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, f'+ {header}')):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
+        m = torch.randint(0, 2, (x0.size(0), params.num_bits), dtype=torch.float32, device=params.device)  # b k [0 1]
         m_normalized = 2 * m - 1  # b k [-1 1]
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
@@ -553,7 +547,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
                        os.path.join(params.imgs_dir, f'{epoch:03d}_train_xr.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
-    print(f'✔️ {header}', metric_logger)
+    print(f'✔️ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -569,13 +563,16 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
     encoder_decoder.eval()
     metric_logger = utils.MetricLogger()
 
+    # assuring same keys generated
+    generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, f'- {header}')):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
-        m = torch.bernoulli(torch.full((x0.size(0), params.num_bits), 0.5, device=params.device))  # b k [0 1]
+        m = torch.randint(0, 2, (x0.size(0), params.num_bits), dtype=torch.float32, device=params.device,
+                          generator=generator)  # b k [0 1]
         m_normalized = 2 * m - 1  # b k [-1 1]
 
-        m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized, eval_attack=lambda x, _: x)
+        m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
         loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
@@ -586,7 +583,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         ori_msgs = torch.sign(m) > 0
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
-        word_accs = (bit_accs == 1)  # b
+        word_accs = bit_accs == 1  # b
         log_stats = {
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
@@ -614,7 +611,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
                        os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     metric_logger.synchronize_between_processes()
-    print(f'⭕ {header}', metric_logger)
+    print(f'⭕ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 

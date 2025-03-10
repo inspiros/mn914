@@ -220,7 +220,7 @@ def main():
     # attacks
     eval_attacks = {
         'none': hidden_attacks.Identity(),
-        'crop_01': hidden_attacks.CenterCrop(0.1),
+        'crop_03': hidden_attacks.CenterCrop(0.3),
         'crop_05': hidden_attacks.CenterCrop(0.5),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
@@ -230,10 +230,12 @@ def main():
             1.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'brightness_2': hidden_attacks.AdjustBrightness(
             2, mean=params.data_mean, std=params.data_std).to(params.device),
+        'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=0.5,
+                                            mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_90': hidden_attacks.JPEGCompress(
+            90, mean=params.data_mean, std=params.data_std).to(params.device),
         'jpeg_80': hidden_attacks.JPEGCompress(
             80, mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_50': hidden_attacks.JPEGCompress(
-            50, mean=params.data_mean, std=params.data_std).to(params.device),
     }
 
     # Construct metrics
@@ -357,7 +359,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
             save_image(torch.clamp(params.denormalize(x_w), 0, 1),
                        os.path.join(params.imgs_dir, f'{it:05d}_train_xw.png'), nrow=8)
 
-    print('Averaged {} stats:'.format('train'), metric_logger)
+    print(f'✔️ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -398,7 +400,7 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
             save_image(torch.clamp(params.denormalize(x_w), 0, 1),
                        os.path.join(params.imgs_dir, f'{it:05d}_val_xw.png'), nrow=8)
 
-    print('Averaged {} stats:'.format('eval'), metric_logger)
+    print(f'⭕ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 

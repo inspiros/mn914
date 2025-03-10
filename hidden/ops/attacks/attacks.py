@@ -19,7 +19,11 @@ __all__ = [
     'AdjustContrast',
     'GaussianBlur',
     'JPEGCompress',
+    'JPEG2000Compress',
+    'WEBPCompress',
     'DiffJPEGCompress',
+    'DiffJPEG2000Compress',
+    'DiffWEBPCompress',
     'WatermarkDropout',
     'WatermarkCropout',
     'WatermarkCenterCropout',
@@ -37,17 +41,17 @@ class _DenormalizedAttack(_BaseAttack):
     r"""Base class for attacks on [0, 1] range."""
 
     def __init__(self,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
         super().__init__()
         if mean is None:
             self.register_buffer('mean', None)
         else:
-            self.register_buffer('mean', torch.as_tensor(mean, dtype=torch.float32))
+            self.register_buffer('mean', torch.as_tensor(mean, dtype=torch.float32), persistent=False)
         if std is None:
             self.register_buffer('std', None)
         else:
-            self.register_buffer('std', torch.as_tensor(std, dtype=torch.float32))
+            self.register_buffer('std', torch.as_tensor(std, dtype=torch.float32), persistent=False)
 
 
 class ImageNormalize(_DenormalizedAttack):
@@ -101,8 +105,8 @@ class Rotate(_BaseAttack):
 
 class AdjustBrightness(_DenormalizedAttack):
     def __init__(self, brightness_factor: float,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
         super().__init__(mean, std)
         self.brightness_factor = brightness_factor
 
@@ -112,8 +116,8 @@ class AdjustBrightness(_DenormalizedAttack):
 
 class AdjustContrast(_DenormalizedAttack):
     def __init__(self, contrast_factor: float,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
         super().__init__(mean, std)
         self.contrast_factor = contrast_factor
 
@@ -123,8 +127,8 @@ class AdjustContrast(_DenormalizedAttack):
 
 class GaussianBlur(_DenormalizedAttack):
     def __init__(self, kernel_size: Union[List[int], int], sigma: Optional[Union[List[float], float]] = 1.,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
         super().__init__(mean, std)
         self.kernel_size = kernel_size
         self.sigma = sigma
@@ -134,33 +138,88 @@ class GaussianBlur(_DenormalizedAttack):
 
 
 class JPEGCompress(_DenormalizedAttack):
-    def __init__(self, quality_factor: int = 8, mode: Optional[str] = None,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None) -> None:
+    def __init__(self, quality: int = 8, mode: Optional[str] = None,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
         super().__init__(mean, std)
-        self.quality_factor = quality_factor
+        self.quality = quality
         self.mode = mode
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.jpeg_compress(x, self.quality_factor, self.mode, self.mean, self.std)
+        return F.jpeg_compress(x, self.quality, self.mode, self.mean, self.std)
+
+
+class JPEG2000Compress(_DenormalizedAttack):
+    def __init__(self, quality: int = 8, mode: Optional[str] = None,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.quality = quality
+        self.mode = mode
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.jpeg2000_compress(x, self.quality, self.mode, self.mean, self.std)
+
+
+class WEBPCompress(_DenormalizedAttack):
+    def __init__(self, quality: int = 8, mode: Optional[str] = None,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.quality = quality
+        self.mode = mode
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.webp_compress(x, self.quality, self.mode, self.mean, self.std)
 
 
 class DiffJPEGCompress(_DenormalizedAttack):
-    def __init__(self, quality_factor: int, mode: Optional[str] = None,
-                 mean: Optional[Tuple[float, ...]] = None,
-                 std: Optional[Tuple[float, ...]] = None):
+    def __init__(self, quality: int, mode: Optional[str] = None,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None):
         super().__init__(mean, std)
-        self.quality_factor = quality_factor
+        self.quality = quality
         self.mode = mode
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.diff_jpeg_compress(x, self.quality_factor, self.mode, self.mean, self.std)
+        return F.diff_jpeg_compress(x, self.quality, self.mode, self.mean, self.std)
+
+
+class DiffJPEG2000Compress(_DenormalizedAttack):
+    def __init__(self, quality: int, mode: Optional[str] = None,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None):
+        super().__init__(mean, std)
+        self.quality = quality
+        self.mode = mode
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.diff_jpeg2000_compress(x, self.quality, self.mode, self.mean, self.std)
+
+
+class DiffWEBPCompress(_DenormalizedAttack):
+    def __init__(self, quality: int, mode: Optional[str] = None,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None):
+        super().__init__(mean, std)
+        self.quality = quality
+        self.mode = mode
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.diff_webp_compress(x, self.quality, self.mode, self.mean, self.std)
 
 
 # -------------------------
-# HiDDeN Attacks
+# Watermark Attacks
 # -------------------------
-class WatermarkDropout(_BaseAttack):
+class _BaseWatermarkAttack(_BaseAttack):
+    r"""Base attack class."""
+
+    def forward(self, x: torch.Tensor, x0: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class WatermarkDropout(_BaseWatermarkAttack):
     def __init__(self, p: float) -> None:
         super().__init__()
         self.p = p
@@ -169,7 +228,7 @@ class WatermarkDropout(_BaseAttack):
         return F.watermark_dropout(x, x0, self.p)
 
 
-class WatermarkCropout(_BaseAttack):
+class WatermarkCropout(_BaseWatermarkAttack):
     def __init__(self, top: Union[float, int], left: Union[float, int],
                  height: Union[float, int], width: Union[float, int]) -> None:
         super().__init__()

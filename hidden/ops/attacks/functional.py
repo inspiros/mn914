@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional, Union
+from typing import List, Tuple, Optional, Union
 
 import torch
 from torchvision.transforms import functional as F_tv
@@ -21,7 +21,11 @@ __all__ = [
     'adjust_contrast',
     'gaussian_blur',
     'jpeg_compress',
+    'jpeg2000_compress',
+    'webp_compress',
     'diff_jpeg_compress',
+    'diff_jpeg2000_compress',
+    'diff_webp_compress',
     'watermark_dropout',
     'watermark_cropout',
     'watermark_center_cropout',
@@ -29,30 +33,30 @@ __all__ = [
 
 
 def normalize_img(x: torch.Tensor,
-                  mean: Optional[torch.Tensor] = None,
-                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                  std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Normalize image from [0, 1] to [-1, 1] """
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
-    mean = mean.view(-1, 1, 1) if mean is not None else 0.5
-    std = std.view(-1, 1, 1) if std is not None else 0.5
+    mean = torch.as_tensor(mean).view(-1, 1, 1) if mean is not None else 0.5
+    std = torch.as_tensor(std).view(-1, 1, 1) if std is not None else 0.5
     return (x - mean) / std
 
 
 def denormalize_img(x: torch.Tensor,
-                    mean: Optional[torch.Tensor] = None,
-                    std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                    mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                    std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Denormalize image from [-1, 1] to [0, 1] """
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
-    mean = mean.view(-1, 1, 1) if mean is not None else 0.5
-    std = std.view(-1, 1, 1) if std is not None else 0.5
+    mean = torch.as_tensor(mean).view(-1, 1, 1) if mean is not None else 0.5
+    std = torch.as_tensor(std).view(-1, 1, 1) if std is not None else 0.5
     return x * std + mean
 
 
 def to_tensor_img(x: torch.Tensor,
-                  mean: Optional[torch.Tensor] = None,
-                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                  std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Convert tensor to Tensor Image """
     if (mean is None) ^ (std is None):
         raise ValueError('Both mean and std must be specified')
@@ -62,8 +66,8 @@ def to_tensor_img(x: torch.Tensor,
 
 
 def round_pixel(x: torch.Tensor,
-                mean: Optional[torch.Tensor] = None,
-                std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r"""
     Round pixel values to nearest integer.
 
@@ -80,8 +84,8 @@ def round_pixel(x: torch.Tensor,
 
 
 def clamp_pixel(x: torch.Tensor,
-                mean: Optional[torch.Tensor] = None,
-                std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r"""
     Clamp pixel values to 0 255.
 
@@ -151,8 +155,8 @@ def rotate(x: torch.Tensor, angle: float) -> torch.Tensor:
 
 def adjust_brightness(x: torch.Tensor,
                       brightness_factor: float,
-                      mean: Optional[torch.Tensor] = None,
-                      std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                      mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                      std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Adjust brightness of an image
 
     Args:
@@ -168,8 +172,8 @@ def adjust_brightness(x: torch.Tensor,
 
 def adjust_contrast(x: torch.Tensor,
                     contrast_factor: float,
-                    mean: Optional[torch.Tensor] = None,
-                    std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                    mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                    std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Adjust constrast of an image
 
     Args:
@@ -184,8 +188,8 @@ def adjust_contrast(x: torch.Tensor,
 
 
 def gaussian_blur(x: torch.Tensor, kernel_size: Union[List[int], int], sigma: Optional[Union[List[float], float]] = 1.,
-                  mean: Optional[torch.Tensor] = None,
-                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
+                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                  std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Add gaussian blur to image
 
     Args:
@@ -201,14 +205,15 @@ def gaussian_blur(x: torch.Tensor, kernel_size: Union[List[int], int], sigma: Op
 
 
 @torch.no_grad()
-def jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = None,
-                  mean: Optional[torch.Tensor] = None,
-                  std: Optional[torch.Tensor] = None) -> torch.Tensor:
-    r""" Apply jpeg compression to image
+def compress(x: torch.Tensor, format: str, quality: int, mode: Optional[str] = None,
+             mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+             std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply compression to image
 
     Args:
         x: Image tensor with values between [-1,1]
-        quality_factor: quality factor
+        format: compression format
+        quality: quality factor
         mode: PIL Image mode
         mean: Dataset mean
         std: Dataset std
@@ -217,6 +222,8 @@ def jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = No
     if mode is None:
         if channels == 3:
             mode = 'RGB'
+        elif channels == 4:
+            mode = 'RGBA'
         elif channels == 1:
             mode = 'L'
 
@@ -225,43 +232,137 @@ def jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = No
     for i in range(x.size(0)):
         img = x[i]
         pil_img = F_tv.to_pil_image(img, mode=mode)
-        y[i] = F_tv.to_tensor(encoding_quality(pil_img, quality=quality_factor))
+        y[i] = F_tv.to_tensor(encoding_quality(pil_img, format=format, quality=quality))
     return normalize_img(y, mean=mean, std=std)
 
 
-def diff_jpeg_compress(x: torch.Tensor, quality_factor: int, mode: Optional[str] = None,
-                       mean: Optional[torch.Tensor] = None,
-                       std: Optional[torch.Tensor] = None) -> torch.Tensor:
-    r""" Apply differentiable jpeg compression to image
+@torch.no_grad()
+def jpeg_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
+                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                  std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply JPEG compression to image
 
     Args:
         x: Image tensor with values between [-1,1]
-        quality_factor: quality factor
+        quality: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
+    """
+    return compress(x, format='JPEG', quality=quality, mode=mode, mean=mean, std=std)
+
+
+@torch.no_grad()
+def jpeg2000_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
+                      mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                      std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply JPEG 2000 compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        quality: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
+    """
+    return compress(x, format='JPEG 2000', quality=quality, mode=mode, mean=mean, std=std)
+
+
+@torch.no_grad()
+def webp_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
+                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                  std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply WebP compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        quality: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
+    """
+    return compress(x, format='WEBP', quality=quality, mode=mode, mean=mean, std=std)
+
+
+def diff_compress(x: torch.Tensor, format: str, quality: int, mode: Optional[str] = None,
+                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                  std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply differentiable compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        format: compression format
+        quality: quality factor
         mode: PIL Image mode
         mean: Dataset mean
         std: Dataset std
     """
     with torch.no_grad():
         x_clip = clamp_pixel(x, mean=mean, std=std)
-        x_jpeg = jpeg_compress(x_clip, quality_factor, mode, mean=mean, std=std)
-        x_gap = x_jpeg - x
+        x_compressed = compress(x_clip, format, quality, mode, mean=mean, std=std)
+        x_gap = x_compressed - x
         x_gap = x_gap.detach()
     return x + x_gap
+
+
+def diff_jpeg_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
+                       mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                       std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply differentiable JPEG compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        quality: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
+    """
+    return diff_compress(x, format='JPEG', quality=quality, mode=mode, mean=mean, std=std)
+
+
+def diff_jpeg2000_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
+                       mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                       std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply differentiable JPEG 2000 compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        quality: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
+    """
+    return diff_compress(x, format='JPEG2000', quality=quality, mode=mode, mean=mean, std=std)
+
+
+def diff_webp_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
+                       mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                       std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Apply differentiable WebP compression to image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        quality: quality factor
+        mode: PIL Image mode
+        mean: Dataset mean
+        std: Dataset std
+    """
+    return diff_compress(x, format='WEBP', quality=quality, mode=mode, mean=mean, std=std)
 
 
 # -------------------------
 # HiDDeN Attacks
 # -------------------------
 def watermark_dropout(x: torch.Tensor, x0: torch.Tensor, p: float) -> torch.Tensor:
-    r""" Randomly remove watermark pixels
+    r""" Randomly remove watermarked pixels
 
     Args:
         x: Tensor image
         x0: Non-encoded Tensor image
         p: Probability of dropout
     """
-    mask = torch.bernoulli(torch.full_like(x, p)).bool()
-    return torch.where(mask, x0, x)
+    mask = torch.bernoulli(x.new_full((x.size(0), 1, x.size(2), x.size(3)), p)).bool()
+    return torch.where(mask.repeat(1, x.size(1), 1, 1), x0, x)
 
 
 def watermark_cropout(x: torch.Tensor, x0: torch.Tensor,
@@ -284,7 +385,7 @@ def watermark_cropout(x: torch.Tensor, x0: torch.Tensor,
         left = int(left * w0)
         height = int(height * h0)
         width = int(width * w0)
-    mask[top:top + height, left:left + width].fill_(False)
+    mask[..., top:top + height, left:left + width].fill_(False)
     return torch.where(mask, x0, x)
 
 
@@ -298,5 +399,5 @@ def watermark_center_cropout(x: torch.Tensor, x0: torch.Tensor,
     left = int(w0 * (1 - scale) / 2)
     height = int(scale * h0)
     width = int(scale * w0)
-    mask[top:top + height, left:left + width].fill_(False)
+    mask[..., top:top + height, left:left + width].fill_(False)
     return torch.where(mask, x0, x)
