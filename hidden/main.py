@@ -305,7 +305,7 @@ def main():
     if params.attack_layer == 'hidden':
         attack_layer = attack_layers.HiddenAttackLayer(params.img_size).to(params.device)
     elif params.attack_layer == 'none':
-        attack_layer = attack_layers.Identity()
+        attack_layer = attack_layers.wrap_attack(attack_layers.Identity())
     else:
         raise ValueError('Unknown attack layer')
     print('Attack Layer:', attack_layer)
