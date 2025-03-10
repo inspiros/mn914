@@ -94,8 +94,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Number of blocks in the decoder (Default: 4)')
 
     g = parser.add_argument_group('Training parameters')
-    g.add_argument('--bn_momentum', type=float, default=0.01,
-                   help='Momentum of the batch normalization layer. (Default: 0.1)')
     g.add_argument('--eval_freq', default=10, type=int)
     g.add_argument('--saveckpt_freq', default=100, type=int)
     g.add_argument('--saveimg_freq', default=10, type=int)
@@ -296,11 +294,6 @@ def main():
     print('\ndecoder: \n', decoder)
     print('total parameters:', sum(p.numel() for p in decoder.parameters()))
 
-    # Adapt bn momentum
-    for module in [*decoder.modules(), *encoder.modules()]:
-        if type(module) == torch.nn.BatchNorm2d:
-            module.momentum = params.bn_momentum if params.bn_momentum != -1 else None
-
     # Construct attenuation
     if params.attenuation == 'jnd':
         attenuation = attenuations.JND(
@@ -314,7 +307,7 @@ def main():
     elif params.attack_layer == 'none':
         attack_layer = attack_layers.Identity()
     else:
-        raise ValueError('Unknown data augmentation type')
+        raise ValueError('Unknown attack layer')
     print('Attack Layer:', attack_layer)
 
     print(f'Losses: {params.loss_w} and {params.loss_i}')
@@ -353,7 +346,7 @@ def main():
     # attacks
     eval_attacks = {
         'none': hidden_attacks.Identity(),
-        'crop_01': hidden_attacks.CenterCrop(0.1),
+        'crop_03': hidden_attacks.CenterCrop(0.3),
         'crop_05': hidden_attacks.CenterCrop(0.5),
         'resize_03': hidden_attacks.Resize(0.3),
         'resize_05': hidden_attacks.Resize(0.5),
