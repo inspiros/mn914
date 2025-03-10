@@ -81,7 +81,7 @@ class EncoderDecoder(nn.Module):
         # attack simulation
         if eval_attack is not None:
             x_r = eval_attack(x_w, x0)
-        elif self.training:
+        elif self.training and self.attack_layer is not None:
             x_r = self.attack_layer(x_w, x0)
         else:
             x_r = x_w.clone()

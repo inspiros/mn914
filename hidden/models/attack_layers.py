@@ -146,8 +146,8 @@ class HiddenAttackLayer(_BaseDenormalizedAttackLayer):
         ]
         augmentations += [
             random_attacks.RandomDiffJPEG(quality=(75, 100), mean=mean, std=std, p=1),
-            random_attacks.RandomDiffJPEG2000(quality=(25, 100), mean=mean, std=std, p=1),
-            random_attacks.RandomDiffWEBP(quality=(75, 100), mean=mean, std=std, p=1),
+            # random_attacks.RandomDiffJPEG2000(quality=(25, 100), mean=mean, std=std, p=1),
+            # random_attacks.RandomDiffWEBP(quality=(75, 100), mean=mean, std=std, p=1),
         ]
         self.augmentations = nn.ModuleList(list(map(partial(wrap_attack, return_template=False), augmentations)))
         # self.hidden_aug = K.AugmentationSequential(*augmentations, random_apply=1)
