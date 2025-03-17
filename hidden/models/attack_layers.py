@@ -110,45 +110,67 @@ class HiddenAttackLayer(_BaseDenormalizedAttackLayer):
     """
 
     def __init__(self, img_size,
+                 p_flip: float = 1.,
+                 p_drop: float = 1.,
+                 p_color_jitter: float = 1.,
+                 p_crop: float = 1.,
+                 p_resize: float = 1.,
+                 p_blur: float = 1.,
+                 p_rotate: float = 1.,
+                 p_jpeg: float = 1.,
+                 p_jpeg2000: float = 1.,
+                 p_webp: float = 1.,
                  mean: Optional[Tuple[float, ...]] = None,
                  std: Optional[Tuple[float, ...]] = None):
         super().__init__(mean, std)
         img_size = _pair(img_size)
 
-        augmentations = [
-            Identity(),
-            K.RandomHorizontalFlip(p=1),
-        ]
-        augmentations += [
-            random_attacks.RandomWatermarkDropout(dropout_p=(0.05, 0.2), p=1),
-            random_attacks.RandomWatermarkCropout(size=(0.5, 1.), p=1),
-        ]
-        augmentations += [
-            self.wrap_denormalized(K.ColorJiggle(brightness=(0.75, 1.25), contrast=0, saturation=0, hue=0, p=1)),
-            self.wrap_denormalized(K.ColorJiggle(brightness=0, contrast=(0.5, 1.5), saturation=0, hue=0, p=1)),
-            self.wrap_denormalized(K.ColorJiggle(brightness=0, contrast=0, saturation=(0.5, 1.5), hue=0, p=1)),
-            self.wrap_denormalized(K.ColorJiggle(brightness=0, contrast=0, saturation=0, hue=(-0.1, 0.1), p=1)),
-        ]
-        augmentations += [
-            random_attacks.RandomSizedCrop(size=(0.3, 1.), p=1),
-        ]
-        augmentations += [
-            self.wrap_denormalized(K.RandomResizedCrop(size=img_size, scale=(0.3, 1.0), p=1)),
-        ]
-        augmentations += [
-            self.wrap_denormalized(K.RandomGaussianBlur(kernel_size=(3, 3), sigma=(0.1, 0.9), p=1)),
-            self.wrap_denormalized(K.RandomGaussianBlur(kernel_size=(5, 5), sigma=(0.1, 0.9), p=1)),
-        ]
-        augmentations += [
-            self.wrap_denormalized(K.RandomAffine(degrees=(-45, 45), p=1)),
-            self.wrap_denormalized(K.RandomAffine(degrees=(-90, -90), p=1)),  # rotate left
-            self.wrap_denormalized(K.RandomAffine(degrees=(90, 90), p=1)),  # rotate right
-        ]
-        augmentations += [
-            random_attacks.RandomDiffJPEG(quality=(75, 100), mean=mean, std=std, p=1),
-            # random_attacks.RandomDiffJPEG2000(quality=(25, 100), mean=mean, std=std, p=1),
-            # random_attacks.RandomDiffWEBP(quality=(75, 100), mean=mean, std=std, p=1),
-        ]
+        augmentations = [Identity()]
+        if p_flip > 0:
+            augmentations.append(K.RandomHorizontalFlip(p=1))
+        if p_drop > 0:
+            augmentations += [
+                random_attacks.RandomWatermarkDropout(dropout_p=(0.05, 0.2), p=1),
+                random_attacks.RandomWatermarkCropout(size=(0.5, 1.), p=1),
+            ]
+        if p_color_jitter > 0:
+            augmentations += [
+                self.wrap_denormalized(K.ColorJiggle(brightness=(0.75, 1.25), contrast=0, saturation=0, hue=0, p=1)),
+                self.wrap_denormalized(K.ColorJiggle(brightness=0, contrast=(0.5, 1.5), saturation=0, hue=0, p=1)),
+                self.wrap_denormalized(K.ColorJiggle(brightness=0, contrast=0, saturation=(0.5, 1.5), hue=0, p=1)),
+                self.wrap_denormalized(K.ColorJiggle(brightness=0, contrast=0, saturation=0, hue=(-0.1, 0.1), p=1)),
+            ]
+        if p_crop > 0:
+            augmentations += [
+                random_attacks.RandomSizedCrop(size=(0.375, 1.), p=1),
+            ]
+        if p_resize > 0:
+            augmentations += [
+                self.wrap_denormalized(K.RandomResizedCrop(size=img_size, scale=(0.375, 1.0), p=1)),
+            ]
+        if p_blur > 0:
+            augmentations += [
+                self.wrap_denormalized(K.RandomGaussianBlur(kernel_size=(3, 3), sigma=(0.1, 0.9), p=1)),
+                self.wrap_denormalized(K.RandomGaussianBlur(kernel_size=(5, 5), sigma=(0.1, 0.9), p=1)),
+            ]
+        if p_rotate > 0:
+            augmentations += [
+                self.wrap_denormalized(K.RandomAffine(degrees=(-45, 45), p=1)),
+                self.wrap_denormalized(K.RandomAffine(degrees=(-90, -90), p=1)),  # rotate left
+                self.wrap_denormalized(K.RandomAffine(degrees=(90, 90), p=1)),  # rotate right
+            ]
+        if p_jpeg > 0:
+            augmentations += [
+                random_attacks.RandomDiffJPEG(quality=(75, 100), mean=mean, std=std, p=1),
+            ]
+        if p_jpeg2000 > 0:
+            augmentations += [
+                random_attacks.RandomDiffJPEG2000(quality=(25, 100), mean=mean, std=std, p=1),
+            ]
+        if p_webp > 0:
+            augmentations += [
+                random_attacks.RandomDiffWEBP(quality=(75, 100), mean=mean, std=std, p=1),
+            ]
         self.augmentations = nn.ModuleList(list(map(partial(wrap_attack, return_template=False), augmentations)))
         # self.hidden_aug = K.AugmentationSequential(*augmentations, random_apply=1)
 
@@ -156,8 +178,8 @@ class HiddenAttackLayer(_BaseDenormalizedAttackLayer):
         apply_id = torch.randint(0, len(self.augmentations), (1,)).item()
         return self.augmentations[apply_id](x, x0)
 
-    def f(self, x: torch.Tensor, x0: Optional[torch.Tensor] = None,
-          apply_id: Optional[int] = None) -> torch.Tensor:
+    def forward_debug(self, x: torch.Tensor, x0: Optional[torch.Tensor] = None,
+                      apply_id: Optional[int] = None) -> torch.Tensor:
         # TODO: for testing only
         apply_id = torch.randint(0, len(self.augmentations), (1,)).item() if apply_id is None else apply_id
         print(apply_id, self.augmentations[apply_id])

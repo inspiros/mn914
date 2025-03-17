@@ -218,52 +218,25 @@ python main.py mnist `
   --loss_w bce --loss_margin 1
 ```
 
-#### CIFAR10 with HiDDeN model
-
-- On Linux:
-```cmd
-python main.py cifar10 \
-  --dataset CIFAR10 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] \
-  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 --eval_freq 10 \
-  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
-  --optimizer Lamb,lr=2e-2 \
-  --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
-  --scaling_w 0.3 --scale_channels False --attenuation none \
-  --loss_w bce --loss_margin 1
-```
-- On Windows:
-```cmd
-python main.py cifar10 `
-  --dataset CIFAR10 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] `
-  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 --eval_freq 10 `
-  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
-  --optimizer Lamb,lr=2e-2 `
-  --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
-  --scaling_w 0.3 --scale_channels False --attenuation none `
-  --loss_w bce --loss_margin 1
-```
-
 #### CIFAR10 with U-Net
 
 - On Linux:
 ```cmd
 python main.py cifar10_unet \
-  --dataset CIFAR10 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] \
-  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 --eval_freq 10 \
+  --dataset CIFAR10 --img_size 32 --img_channels 3 --num_bits 32 --batch_size 32 --epochs 250 \
   --encoder unet --generate_delta False \
-  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
   --optimizer Lamb,lr=2e-2 \
-  --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 \
-  --loss_w bce --loss_i watson-vgg
+  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=250,warmup_lr_init=1e-6,warmup_t=5 \
+  --loss_w bce --loss_i mse --loss_p watson-vgg \
+  --lambda_w 1 --lambda_i 0.1 --lambda_p 1
 ```
 - On Windows:
 ```cmd
 python main.py cifar10_unet `
-  --dataset CIFAR10 --data_mean [0.485,0.456,0.406] --data_std [0.229,0.224,0.225] `
-  --img_size 32 --img_channels 3 --num_bits 32 --batch_size 128 --epochs 150 --eval_freq 10 `
+  --dataset CIFAR10 --img_size 32 --img_channels 3 --num_bits 32 --batch_size 32 --epochs 250 `
   --encoder unet --generate_delta False `
-  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 `
   --optimizer Lamb,lr=2e-2 `
-  --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 --p_crop 1.0 --p_res 1.0 --p_jpeg 1.0 `
-  --loss_w bce --loss_i watson-vgg
+  --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=250,warmup_lr_init=1e-6,warmup_t=5 `
+  --loss_w bce --loss_i mse --loss_p watson-vgg `
+  --lambda_w 1 --lambda_i 0.1 --lambda_p 1
 ```

@@ -1,4 +1,4 @@
-## Notes for meeting on 28/02
+## Meeting Notes
 
 ### 1. Setup
 
@@ -26,11 +26,15 @@ Then run:
 ```cmd
 python main.py cifar10_unet \
     --dataset CIFAR10 --img_size 32 --img_channels 3 \
-    --num_bits 32 --batch_size 256 --epochs 200 --eval_freq 5 \
+    --num_bits 32 --batch_size 32 --epochs 200 --eval_freq 5 \
     --encoder unet --generate_delta False \
-    --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=300,warmup_lr_init=1e-6,warmup_t=5 \
+    --decoder resnet --resume_from ../ckpts/hidden_resnet.pth \
+    --encoder_only_epochs 10 \
     --optimizer Lamb,lr=2e-2 \
-    --loss_w bce --loss_i mse --lambda_w 1 --lambda_i 1
+    --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=200,warmup_lr_init=1e-6,warmup_t=5 \
+    --p_color_jitter 0.0 --p_blur 0.0 --p_rot 0.0 \
+    --loss_w bce --loss_i mse --loss_p watson-vgg \
+    --lambda_w 1 --lambda_i 0.02 --lambda_p 0.5
 ```
 
 #### 2.2. Finetune GAN on CIFAR10 with Different Configurations

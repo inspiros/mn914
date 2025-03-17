@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional
 
 import torch
 import torch.nn as nn
@@ -6,19 +6,21 @@ import torch.nn as nn
 __all__ = ['ConvBNRelu2d', 'ConvTransposeBNRelu2d']
 
 
-def _get_activation(name: str, *args, **kwargs) -> nn.Module:
-    if name == 'relu':
+def _get_activation(act: Union[str, nn.Module], *args, **kwargs) -> nn.Module:
+    if isinstance(act, nn.Module):
+        return act
+    elif act == 'relu':
         return nn.ReLU(*args, **kwargs)
-    elif name == 'leaky_relu':
+    elif act == 'leaky_relu':
         return nn.LeakyReLU(*args, **kwargs)
-    elif name == 'gelu':
+    elif act == 'gelu':
         return nn.GELU(*args, **kwargs)
-    elif name == 'hardswish':
+    elif act == 'hardswish':
         return nn.Hardswish(*args, **kwargs)
-    elif name == 'mish':
+    elif act == 'mish':
         return nn.Mish(*args, **kwargs)
     else:
-        raise ValueError(f'Unknown activation name: {name}')
+        raise ValueError(f'Unknown activation name: {act}')
 
 
 class ConvBNRelu2d(nn.Module):
@@ -38,13 +40,10 @@ class ConvBNRelu2d(nn.Module):
                       dilation=dilation, groups=groups, bias=bias),
             nn.BatchNorm2d(out_channels, eps=1e-3),
         )
-        if isinstance(activation, nn.Module):
-            self.layers.append(activation)
-        else:
-            act = _get_activation(activation)
-            if hasattr(act, 'inplace'):
-                act.inplace = True
-            self.layers.append(act)
+        act = _get_activation(activation)
+        if hasattr(act, 'inplace'):
+            act.inplace = True
+        self.layers.append(act)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layers(x)
@@ -67,13 +66,10 @@ class ConvTransposeBNRelu2d(nn.Module):
                                dilation=dilation, groups=groups, bias=bias),
             nn.BatchNorm2d(out_channels, eps=1e-3),
         )
-        if isinstance(activation, nn.Module):
-            self.layers.append(activation)
-        else:
-            act = _get_activation(activation)
-            if hasattr(act, 'inplace'):
-                act.inplace = True
-            self.layers.append(act)
+        act = _get_activation(activation)
+        if hasattr(act, 'inplace'):
+            act.inplace = True
+        self.layers.append(act)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layers(x)

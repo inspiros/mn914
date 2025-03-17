@@ -45,12 +45,34 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--clf_ckpt', type=str, default=None,
                    help='Path to the classifier checkpoint for computing distillation loss')
     g.add_argument('--num_bits', type=int, default=16, help='Number of bits in the watermark')
-    g.add_argument('--attack_layer', type=str, default='none',
-                   help='Attack simulation layer')
     g.add_argument('--decoder_depth', type=int, default=8,
                    help='Depth of the decoder in the watermarking model')
     g.add_argument('--decoder_channels', type=int, default=64,
                    help='Number of channels in the decoder of the watermarking model')
+
+    g = parser.add_argument_group('Attack layer parameters')
+    g.add_argument('--attack_layer', type=str, default='none',
+                   help='Attack simulation layer')
+    g.add_argument('--p_flip', type=float, default=1,
+                   help='Probability of the flip attack. (Default: 1)')
+    g.add_argument('--p_drop', type=float, default=1,
+                   help='Probability of the watermark dropout attack. (Default: 1)')
+    g.add_argument('--p_color_jitter', type=float, default=1,
+                   help='Probability of the color jitter attack. (Default: 1)')
+    g.add_argument('--p_crop', type=float, default=0,
+                   help='Probability of the crop attack. (Default: 0)')
+    g.add_argument('--p_resize', type=float, default=1,
+                   help='Probability of the resize attack. (Default: 1)')
+    g.add_argument('--p_blur', type=float, default=1,
+                   help='Probability of the blur attack. (Default: 1)')
+    g.add_argument('--p_rot', type=float, default=1,
+                   help='Probability of the rotation attack. (Default: 1)')
+    g.add_argument('--p_jpeg', type=float, default=1,
+                   help='Probability of the diff JPEG attack. (Default: 1)')
+    g.add_argument('--p_jpeg2000', type=float, default=0,
+                   help='Probability of the diff JPEG2000 attack. (Default: 0)')
+    g.add_argument('--p_webp', type=float, default=0,
+                   help='Probability of the diff WebP attack. (Default: 0)')
 
     g = parser.add_argument_group('Training parameters')
     g.add_argument('--batch_size', type=int, default=4, help='Batch size for training')
@@ -150,7 +172,18 @@ def main():
         attack_layer = nn.Identity()
     elif params.attack_layer == 'hidden':
         attack_layer = HiddenAttackLayer(
-            params.img_size, mean=params.data_mean, std=params.data_std).to(params.device)
+            params.img_size,
+            p_flip=params.p_flip,
+            p_drop=params.p_drop,
+            p_color_jitter=params.p_color_jitter,
+            p_crop=params.p_crop,
+            p_resize=params.p_resize,
+            p_blur=params.p_blur,
+            p_rotate=params.p_rotate,
+            p_jpeg=params.p_jpeg,
+            p_jpeg2000=params.p_jpeg2000,
+            p_webp=params.p_webp,
+            mean=params.data_mean, std=params.data_std).to(params.device)
     else:
         raise ValueError('attack_layer not recognized')
 

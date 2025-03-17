@@ -24,16 +24,16 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 # utils for running exp
-def restart_from_checkpoint(ckp_path, run_variables=None, **kwargs):
+def restart_from_checkpoint(ckpt_path, run_variables=None, **kwargs):
     r"""
     Re-start from checkpoint
     """
-    if not os.path.isfile(ckp_path):
+    if not os.path.isfile(ckpt_path):
         return
-    print('Found checkpoint at {}'.format(ckp_path))
+    print('Found checkpoint at {}'.format(ckpt_path))
 
     # open checkpoint file
-    checkpoint = torch.load(ckp_path, weights_only=False, map_location='cpu')
+    checkpoint = torch.load(ckpt_path, weights_only=False, map_location='cpu')
 
     # key is what to look for in the checkpoint file
     # value is the object to load
@@ -46,15 +46,15 @@ def restart_from_checkpoint(ckp_path, run_variables=None, **kwargs):
                 except:
                     checkpoint[key] = {k.replace('module.', ''): v for k, v in checkpoint[key].items()}
                     msg = value.load_state_dict(checkpoint[key], strict=False)
-                print('=> loaded "{}" from checkpoint "{}" with msg {}'.format(key, ckp_path, msg))
+                print('=> loaded "{}" from checkpoint "{}" with msg {}'.format(key, ckpt_path, msg))
             except TypeError:
                 try:
                     msg = value.load_state_dict(checkpoint[key])
-                    print('=> loaded "{}" from checkpoint: "{}"'.format(key, ckp_path))
+                    print('=> loaded "{}" from checkpoint: "{}"'.format(key, ckpt_path))
                 except ValueError:
-                    print('=> failed to load "{}" from checkpoint: "{}"'.format(key, ckp_path))
+                    print('=> failed to load "{}" from checkpoint: "{}"'.format(key, ckpt_path))
         else:
-            print('=> key "{}" not found in checkpoint: "{}"'.format(key, ckp_path))
+            print('=> key "{}" not found in checkpoint: "{}"'.format(key, ckpt_path))
 
     # re load variable important for the run
     if run_variables is not None:

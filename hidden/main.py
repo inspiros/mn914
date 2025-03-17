@@ -107,8 +107,10 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Optimization parameters')
     g.add_argument('--epochs', type=int, default=100,
                    help='Number of epochs for optimization. (Default: 100)')
-    g.add_argument('--pretrain_epochs', type=int, default=0,
+    g.add_argument('--reconstruct_pretrain_epochs', type=int, default=0,
                    help='Number of epochs for image loss-only pretraining. (Default: 0)')
+    g.add_argument('--encoder_only_epochs', type=int, default=0,
+                   help='Number of epochs for pretraining encoder only. (Default: 0)')
     g.add_argument('--optimizer', type=str, default='Adam',
                    help='Optimizer to use. (Default: Adam)')
     g.add_argument('--scheduler', type=utils.nullable(str), default=None,
@@ -144,18 +146,26 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Attack layer parameters')
     g.add_argument('--attack_layer', type=str, default='hidden',
                    help='Type of data augmentation to use at marking time. (Default: hidden)')
-    g.add_argument('--p_crop', type=float, default=0.5,
-                   help='Probability of the crop augmentation. (Default: 0.5)')
-    g.add_argument('--p_resize', type=float, default=0.5,
-                   help='Probability of the resize augmentation. (Default: 0.5)')
-    g.add_argument('--p_blur', type=float, default=0.5,
-                   help='Probability of the blur augmentation. (Default: 0.5)')
-    g.add_argument('--p_jpeg', type=float, default=0.5,
-                   help='Probability of the diff JPEG augmentation. (Default: 0.5)')
-    g.add_argument('--p_rot', type=float, default=0.5,
-                   help='Probability of the rotation augmentation. (Default: 0.5)')
-    g.add_argument('--p_color_jitter', type=float, default=0.5,
-                   help='Probability of the color jitter augmentation. (Default: 0.5)')
+    g.add_argument('--p_flip', type=float, default=1,
+                   help='Probability of the flip attack. (Default: 1)')
+    g.add_argument('--p_drop', type=float, default=1,
+                   help='Probability of the watermark dropout attack. (Default: 1)')
+    g.add_argument('--p_color_jitter', type=float, default=1,
+                   help='Probability of the color jitter attack. (Default: 1)')
+    g.add_argument('--p_crop', type=float, default=0,
+                   help='Probability of the crop attack. (Default: 0)')
+    g.add_argument('--p_resize', type=float, default=1,
+                   help='Probability of the resize attack. (Default: 1)')
+    g.add_argument('--p_blur', type=float, default=1,
+                   help='Probability of the blur attack. (Default: 1)')
+    g.add_argument('--p_rot', type=float, default=1,
+                   help='Probability of the rotation attack. (Default: 1)')
+    g.add_argument('--p_jpeg', type=float, default=1,
+                   help='Probability of the diff JPEG attack. (Default: 1)')
+    g.add_argument('--p_jpeg2000', type=float, default=0,
+                   help='Probability of the diff JPEG2000 attack. (Default: 0)')
+    g.add_argument('--p_webp', type=float, default=0,
+                   help='Probability of the diff WebP attack. (Default: 0)')
 
     g = parser.add_argument_group('Distributed training parameters')
     g.add_argument('--local_rank', default=-1, type=int)
@@ -303,7 +313,19 @@ def main():
 
     # Construct data augmentation seen at train time
     if params.attack_layer == 'hidden':
-        attack_layer = attack_layers.HiddenAttackLayer(params.img_size).to(params.device)
+        attack_layer = attack_layers.HiddenAttackLayer(
+            params.img_size,
+            p_flip=params.p_flip,
+            p_drop=params.p_drop,
+            p_color_jitter=params.p_color_jitter,
+            p_crop=params.p_crop,
+            p_resize=params.p_resize,
+            p_blur=params.p_blur,
+            p_rotate=params.p_rotate,
+            p_jpeg=params.p_jpeg,
+            p_jpeg2000=params.p_jpeg2000,
+            p_webp=params.p_webp,
+            mean=params.data_mean, std=params.data_std).to(params.device)
     elif params.attack_layer == 'none':
         attack_layer = None
     else:
@@ -406,18 +428,21 @@ def main():
     print('scheduler:', scheduler)
 
     # optionally resume training
-    if params.resume_from is not None:
+    to_restore = {'epoch': 1}
+    if os.path.isfile(os.path.join(params.output_dir, 'checkpoint.pth')):
+        utils.restart_from_checkpoint(
+            os.path.join(params.output_dir, 'checkpoint.pth'),
+            run_variables=to_restore,
+            encoder_decoder=encoder_decoder,
+            optimizer=optimizer,
+        )
+    elif params.resume_from is not None:
         utils.restart_from_checkpoint(
             params.resume_from,
             encoder_decoder=encoder_decoder
         )
-    to_restore = {'epoch': 1}
-    utils.restart_from_checkpoint(
-        os.path.join(params.output_dir, 'checkpoint.pth'),
-        run_variables=to_restore,
-        encoder_decoder=encoder_decoder,
-        optimizer=optimizer
-    )
+        if params.encoder_only_epochs:
+            decoder.requires_grad_(False)
     start_epoch = to_restore['epoch']
     for param_group in optimizer.param_groups:
         param_group['lr'] = optim_params['lr']
@@ -441,6 +466,8 @@ def main():
         if params.dist:
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
+        if params.resume_from is not None and epoch >= params.encoder_only_epochs:
+            decoder.requires_grad_(True)
 
         train_stats = train_one_epoch(encoder_decoder, train_loader, optimizer,
                                       message_loss, image_loss, perceptual_loss,
@@ -498,7 +525,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
-        loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
+        loss_w = message_loss(m_hat, m) if epoch >= params.reconstruct_pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
         loss_p = perceptual_loss(x_w, x0) if perceptual_loss is not None else 0
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_p * loss_p
@@ -519,8 +546,8 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
             'loss_p': itemize(loss_p),
-            'bit_acc_avg': torch.mean(bit_accs).item(),
-            'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
+            'bit_acc': torch.mean(bit_accs).item(),
+            'word_acc': torch.mean(word_accs.type(torch.float)).item(),
         }
         # if epoch % params.eval_freq == 0 or epoch == params.epochs:
         log_stats.update({
@@ -567,7 +594,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
 
         m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
-        loss_w = message_loss(m_hat, m) if epoch >= params.pretrain_epochs else 0
+        loss_w = message_loss(m_hat, m) if epoch >= params.reconstruct_pretrain_epochs else 0
         loss_i = image_loss(x_w, x0)  # b c h w -> 1
         loss_p = perceptual_loss(x_w, x0) if perceptual_loss is not None else 0
         loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_p * loss_p
@@ -582,16 +609,16 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
             'loss_p': itemize(loss_p),
-            'bit_acc_avg': torch.mean(bit_accs).item(),
-            'word_acc_avg': torch.mean(word_accs.type(torch.float)).item(),
+            'bit_acc': torch.mean(bit_accs).item(),
+            'word_acc': torch.mean(word_accs.type(torch.float)).item(),
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
 
         for name, attack in eval_attacks.items():
             m_hat, (_) = encoder_decoder(x0, m, eval_attack=attack)
             decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
-            diff = (~torch.logical_xor(ori_msgs, decoded_msgs))  # b k -> b k
-            log_stats[f'bit_acc_{name}'] = diff.float().mean().item()
+            bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
+            log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
 
         torch.cuda.synchronize()
         for name, loss in log_stats.items():
