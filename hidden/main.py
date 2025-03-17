@@ -150,7 +150,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Probability of the flip attack. (Default: 1)')
     g.add_argument('--p_drop', type=float, default=1,
                    help='Probability of the watermark dropout attack. (Default: 1)')
-    g.add_argument('--p_color_jitter', type=float, default=1,
+    g.add_argument('--p_color_jitter', '--p_color_jiggle', type=float, default=1,
                    help='Probability of the color jitter attack. (Default: 1)')
     g.add_argument('--p_crop', type=float, default=0,
                    help='Probability of the crop attack. (Default: 0)')
@@ -158,7 +158,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Probability of the resize attack. (Default: 1)')
     g.add_argument('--p_blur', type=float, default=1,
                    help='Probability of the blur attack. (Default: 1)')
-    g.add_argument('--p_rot', type=float, default=1,
+    g.add_argument('--p_rotate', '--p_rot', type=float, default=1,
                    help='Probability of the rotation attack. (Default: 1)')
     g.add_argument('--p_jpeg', type=float, default=1,
                    help='Probability of the diff JPEG attack. (Default: 1)')
