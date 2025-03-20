@@ -4,29 +4,6 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-
-"""
-torchrun --nproc_per_node=2 main.py \
-    --local_rank 0 \
-    --encoder vit --encoder_depth 12 --encoder_channels 384 --use_tanh True \
-    --scaling_w 0.5 \
-    --batch_size 16 --eval_freq 10 \
-    --attenuation jnd \
-    --epochs 100 --optimizer 'AdamW,lr=1e-4'
-    
-Args Inventory:
-    --dist False \
-    --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
-    --batch_size 128 --workers 8 \
-    --attenuation jnd \
-    --num_bits 64 --redundancy 16 \
-    --encoder vit --encoder_depth 6 --encoder_channels 384 --use_tanh True \
-    --encoder vit --encoder_depth 12 --encoder_channels 384 --use_tanh True \
-    --attenuation jnd --batch_size 16 --eval_freq 10 --local_rank 0 \
-    --p_crop 0 --p_rot 0 --p_color_jitter 0 --p_blur 0 --p_jpeg 0 --p_resize 0 \
-
-"""
-
 import argparse
 import datetime
 import json

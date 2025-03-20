@@ -11,7 +11,11 @@ __all__ = ['AEHidingNetwork']
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
-    def __init__(self, in_channels: int, out_channels: int, mid_channels: int = None, activation: str = 'gelu'):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 mid_channels: Optional[int] = None,
+                 activation: Union[str, nn.Module] = 'gelu'):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
@@ -24,7 +28,7 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
 
 
-class BasicBlock(nn.Module):
+class ResBlock(nn.Module):
     expansion = 1
 
     def __init__(
@@ -34,7 +38,7 @@ class BasicBlock(nn.Module):
             mid_channels: Optional[int] = None,
             downsample: Optional[nn.Module] = None,
             activation: Union[str, nn.Module] = 'gelu') -> None:
-        super(BasicBlock, self).__init__()
+        super(ResBlock, self).__init__()
         if mid_channels is None:
             mid_channels = out_channels
         self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False)
@@ -129,7 +133,6 @@ class Bottleneck(nn.Module):
 
 
 class Down(nn.Module):
-    r"""Downscale with maxpool then conv"""
 
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
@@ -141,8 +144,22 @@ class Down(nn.Module):
         return self.conv(x)
 
 
+class DoubleDown(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.downsample = nn.MaxPool2d(2)
+        self.conv1 = ResBlock(in_channels, in_channels, activation='gelu')
+        self.conv2 = DoubleConv(in_channels, out_channels, activation='gelu')
+
+    def forward(self, x):
+        x = self.downsample(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        return x
+
+
 class Up(nn.Module):
-    r"""Upscale then conv"""
 
     def __init__(self, in_channels: int, out_channels: int, use_upsample: bool = True):
         super().__init__()
@@ -162,13 +179,37 @@ class Up(nn.Module):
         return self.conv(x)
 
 
+class DoubleUp(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int, use_upsample: bool = True):
+        super().__init__()
+        if use_upsample:
+            self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.conv1 = ResBlock(in_channels, in_channels, in_channels // 2, activation='gelu')
+            self.conv2 = DoubleConv(in_channels, out_channels, in_channels // 2, activation='gelu')
+        else:
+            self.upsample = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+            self.conv1 = ResBlock(in_channels, in_channels, activation='gelu')
+            self.conv2 = DoubleConv(in_channels, out_channels, activation='gelu')
+
+    @property
+    def use_upsample(self) -> bool:
+        return isinstance(self.upsample, nn.Upsample)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.upsample(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        return x
+
+
 class AEHidingNetwork(nn.Module):
     r"""
     Inserts a watermark into an image using an autoencoder.
     """
 
     def __init__(self, num_bits: int, in_channels: int = 3, last_tanh: bool = True, use_upsample: bool = True,
-                 features_level_insertion: bool = False):
+                 features_level_insertion: bool = False, zero_init_residual: bool = True):
         super(AEHidingNetwork, self).__init__()
         self.features_level_insertion = features_level_insertion
         self.encoder = nn.Sequential(
@@ -188,6 +229,22 @@ class AEHidingNetwork(nn.Module):
             nn.Conv2d(32, in_channels, 1, stride=1, bias=False),  # [b, 3, 32, 32]
         )
         self.last_tanh = last_tanh
+
+        self.reset_parameters(zero_init_residual)
+
+    def reset_parameters(self, zero_init_residual: bool = True) -> None:
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                elif isinstance(m, ResBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
 
     def forward(self, x: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
         m = m.unsqueeze(-1).unsqueeze(-1)  # b l 1 1
