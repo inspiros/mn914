@@ -216,7 +216,7 @@ def resnet18_decoder(num_bits: int, img_channels: int = 3, low_resolution: bool 
     r"""Constructs a ResNet-18 model.
 
     Args:
-        num_bits (int): Number of keys.
+        num_bits (int): Message length.
         img_channels (int): Number of image channels.
         low_resolution (bool): Use low resolution variant or not.
     """
@@ -227,7 +227,7 @@ def resnet34_decoder(num_bits: int = 10, img_channels: int = 3, low_resolution: 
     r"""Constructs a ResNet-34 model.
 
     Args:
-        num_bits (int): Number of classes.
+        num_bits (int): Message length.
         img_channels (int): Number of image channels.
         low_resolution (bool): Use low resolution variant or not.
     """
@@ -238,7 +238,7 @@ def resnet50_decoder(num_bits: int = 10, img_channels: int = 3, low_resolution: 
     r"""Constructs a ResNet-50 model.
 
     Args:
-        num_bits (int): Number of classes.
+        num_bits (int): Message length.
         img_channels (int): Number of image channels.
         low_resolution (bool): Use low resolution variant or not.
     """

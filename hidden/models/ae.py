@@ -134,7 +134,7 @@ class Down(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.downsample = nn.MaxPool2d(2)
-        self.conv = BasicBlock(in_channels, out_channels, activation='gelu')
+        self.conv = DoubleConv(in_channels, out_channels, activation='gelu')
 
     def forward(self, x):
         x = self.downsample(x)
@@ -148,10 +148,10 @@ class Up(nn.Module):
         super().__init__()
         if use_upsample:
             self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = BasicBlock(in_channels, out_channels, in_channels // 2, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2, activation='gelu')
         else:
             self.upsample = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = BasicBlock(in_channels, out_channels, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, activation='gelu')
 
     @property
     def use_upsample(self) -> bool:

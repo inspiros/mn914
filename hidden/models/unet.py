@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ._conv import ConvBNRelu2d
-from .ae import BasicBlock, Down
+from .ae import DoubleConv, BasicBlock, Down
 
 __all__ = ['UNetHidingNetwork']
 
@@ -15,10 +15,10 @@ class UNetUp(nn.Module):
         super().__init__()
         if use_upsample:
             self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = BasicBlock(in_channels, out_channels, in_channels // 2, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2, activation='gelu')
         else:
             self.upsample = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = BasicBlock(in_channels, out_channels, activation='gelu')
+            self.conv = DoubleConv(in_channels, out_channels, activation='gelu')
 
     @property
     def use_upsample(self) -> bool:
@@ -46,7 +46,7 @@ class UNetHidingNetwork(nn.Module):
 
     def __init__(self, num_bits: int, in_channels: int = 3, last_tanh: bool = True, use_upsample: bool = True,
                  features_level_insertion: bool = False):
-        super(UNetHidingNetwork, self).__init__()
+        super().__init__()
         self.features_level_insertion = features_level_insertion
         self.in_conv = ConvBNRelu2d(in_channels + (num_bits if not features_level_insertion else 0), 64)
         self.down1 = Down(64, 128)
@@ -58,7 +58,7 @@ class UNetHidingNetwork(nn.Module):
         self.up2 = UNetUp(512, 256 // factor, use_upsample)
         self.up3 = UNetUp(256, 128 // factor, use_upsample)
         self.up4 = UNetUp(128, 64, use_upsample)
-        self.out_conv = nn.Conv2d(64, in_channels, kernel_size=1, bias=False)
+        self.out_conv = nn.Conv2d(64, in_channels, kernel_size=1) #, bias=False)
 
         self.last_tanh = last_tanh
 

@@ -65,7 +65,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Output directory for logs and images (Default: outputs)')
     g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
     g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
-    g.add_argument('--eval_only', type=utils.bool_inst, default=False)
+    g.add_argument('--eval_only', action='store_true', default=False)
 
     g = parser.add_argument_group('Marking parameters')
     g.add_argument('--num_bits', type=int, default=32,
@@ -452,8 +452,12 @@ def main():
     os.makedirs(params.output_dir, exist_ok=True)
 
     if params.eval_only:
+        params.output_dir = os.path.join(params.output_dir, 'eval')
+        os.makedirs(params.output_dir, exist_ok=True)
         print('evaluating...')
-        val_stats = eval_one_epoch(encoder_decoder, val_loader, start_epoch, eval_attacks, metrics, params)
+        val_stats = eval_one_epoch(encoder_decoder, train_loader,
+                                   message_loss, image_loss, perceptual_loss,
+                                   eval_attacks, metrics, start_epoch, params)
         log_stats = {'epoch': start_epoch, **{f'val_{k}': v for k, v in val_stats.items()}}
         if utils.is_main_process():
             with (Path(params.output_dir) / 'log.txt').open('a') as f:
@@ -616,7 +620,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
         }
 
         for name, attack in eval_attacks.items():
-            m_hat, (_) = encoder_decoder(x0, m, eval_attack=attack)
+            m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized, eval_attack=attack)
             decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
             bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
             log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
