@@ -226,6 +226,8 @@ def main():
 
     # Data loaders
     train_transform = tv_transforms.Compose([
+        tv_transforms.Resize(params.img_size),
+        tv_transforms.CenterCrop(params.img_size),
         tv_transforms.RandomResizedCrop(params.img_size, scale=(0.5, 1.0)),
         tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         tv_transforms.RandomHorizontalFlip(),
