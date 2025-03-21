@@ -40,7 +40,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Path to the checkpoint file for the Generator')
     g.add_argument('--discriminator_ckpt', type=str, default=None,
                    help='Path to the checkpoint file for the Discriminator')
-    g.add_argument('--msg_decoder_path', type=str, required=True,
+    g.add_argument('--decoder', type=str, choices=['hidden', 'resnet'], default='hidden',
+                   help='Decoder type')
+    g.add_argument('--decoder_path', type=str, required=True,
                    help='Path to the hidden decoder for the watermarking model')
     g.add_argument('--clf_ckpt', type=str, default=None,
                    help='Path to the classifier checkpoint for computing distillation loss')
@@ -76,9 +78,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Probability of the diff WebP attack. (Default: 0)')
 
     g = parser.add_argument_group('Training parameters')
-    g.add_argument('--batch_size', type=int, default=4, help='Batch size for training')
+    g.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
     g.add_argument('--img_size', type=int, default=256, help='Resize images to this size')
-    g.add_argument('--img_channels', type=int, default=None, help='Number of image channels.')
+    g.add_argument('--img_channels', type=int, default=3, help='Number of image channels.')
 
     g.add_argument('--loss_i', type=str, default='watson-vgg',
                    help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
@@ -121,7 +123,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--output_dir', type=str, default='outputs',
                    help='Output directory for logs and images (Default: output)')
     g.add_argument('--seed', type=int, default=0)
-    g.add_argument('--debug', type=utils.bool_inst, default=False, help='Debug mode')
 
     params = parser.parse_args()
 
@@ -192,11 +193,12 @@ def main():
 
     # Loads hidden decoder
     print(f'>>> Building HiDDeN Decoder...')
-    msg_decoder = hidden_utils.get_hidden_decoder(num_bits=params.num_bits,
+    msg_decoder = hidden_utils.get_hidden_decoder(params.decoder,
+                                                  num_bits=params.num_bits,
                                                   num_blocks=params.decoder_depth,
                                                   channels=params.decoder_channels,
                                                   in_channels=params.img_channels).to(params.device)
-    msg_decoder.load_state_dict(hidden_utils.get_hidden_decoder_ckpt(params.msg_decoder_path))
+    msg_decoder.load_state_dict(hidden_utils.get_hidden_decoder_ckpt(params.decoder_path))
     # TODO: add whitening?
     msg_decoder.eval()
 
@@ -338,6 +340,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 
     base_lr = optimizer.param_groups[0]['lr']
     m = key.repeat(params.batch_size, 1)
+    ori_msgs = torch.sign(m) > 0
     for it in metric_logger.log_every(range(1, params.steps + 1), params.log_freq, header):
         utils.adjust_learning_rate(optimizer, it, params.steps, params.warmup_steps, base_lr)
         # random latent vector
@@ -363,17 +366,17 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         optimizer.zero_grad()
 
         # log stats
-        diff = (~torch.logical_xor(m_hat > 0, m > 0))  # b k -> b k
-        bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
-        word_accs = (bit_accs == 1)  # b
+        decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
+        bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
+        word_accs = bit_accs == 1  # b
         log_stats = {
             'lr': optimizer.param_groups[0]['lr'],
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
             'loss_d': itemize(loss_d),
-            'bit_acc_avg': bit_accs.mean().item(),
-            'word_acc_avg': word_accs.float().mean().item(),
+            'bit_acc': torch.mean(bit_accs).item(),
+            'word_acc': torch.mean(word_accs.float()).item(),
         }
         if params.log_train_metrics and it % 100 == 0:
             log_stats.update({
@@ -404,6 +407,7 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
     G.eval()
 
     m = key.repeat(params.batch_size, 1)
+    ori_msgs = torch.sign(m) > 0
     # assuring same latent vectors generated
     generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
     for it in metric_logger.log_every(range(1, params.eval_steps + 1), params.log_freq, header):
@@ -417,13 +421,13 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
         for name, attack in eval_attacks.items():
-            imgs_aug = attack(img_transform(x_w))
-            m_hat = msg_decoder(imgs_aug)  # b c h w -> b k
-            diff = (~torch.logical_xor(m_hat > 0, m > 0))  # b k -> b k
-            bit_accs = torch.sum(diff, dim=-1) / diff.shape[-1]  # b k -> b
+            x_r = attack(img_transform(x_w))
+            m_hat = msg_decoder(x_r)  # b c h w -> b k
+            decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
+            bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
             word_accs = (bit_accs == 1)  # b
-            log_stats[f'bit_acc_{name}'] = bit_accs.mean().item()
-            log_stats[f'word_acc_{name}'] = word_accs.float().mean().item()
+            log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
+            log_stats[f'word_acc_{name}'] = torch.mean(word_accs).item()
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 

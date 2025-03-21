@@ -8,7 +8,7 @@ import importlib
 
 import torch
 
-from hidden.models import HiddenEncoder, HiddenDecoder
+from hidden.models import HiddenEncoder, HiddenDecoder, resnet50_decoder
 
 
 def get_hidden_encoder(num_bits, num_blocks=4, channels=64, in_channels=3):
@@ -23,9 +23,13 @@ def get_hidden_encoder_ckpt(ckpt_path):
     return encoder_ckpt
 
 
-def get_hidden_decoder(num_bits, num_blocks=7, channels=64, in_channels=3):
-    decoder = HiddenDecoder(num_blocks=num_blocks, num_bits=num_bits, channels=channels, in_channels=in_channels)
-    return decoder
+def get_hidden_decoder(decoder, num_bits, num_blocks=7, channels=64, in_channels=3):
+    if decoder == 'hidden':
+        return HiddenDecoder(num_blocks=num_blocks, num_bits=num_bits, channels=channels, in_channels=in_channels)
+    elif decoder == 'resnet':
+        return resnet50_decoder(num_bits, in_channels, low_resolution=True)
+    else:
+        raise ValueError('Unknown decoder type')
 
 
 def get_hidden_decoder_ckpt(ckpt_path):

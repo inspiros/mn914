@@ -531,7 +531,7 @@ def train_one_epoch(encoder_decoder: models.EncoderDecoder, loader, optimizer,
             'loss_i': itemize(loss_i),
             'loss_p': itemize(loss_p),
             'bit_acc': torch.mean(bit_accs).item(),
-            'word_acc': torch.mean(word_accs.type(torch.float)).item(),
+            'word_acc': torch.mean(word_accs.float()).item(),
         }
         # if epoch % params.eval_freq == 0 or epoch == params.epochs:
         log_stats.update({
