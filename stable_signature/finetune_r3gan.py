@@ -168,7 +168,7 @@ def main():
 
     # Loads attack layer
     if params.attack_layer is None:
-        attack_layer = nn.Identity()
+        attack_layer = None
     elif params.attack_layer == 'hidden':
         attack_layer = HiddenAttackLayer(
             params.img_size,
@@ -344,7 +344,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         x_w = G(z, label).float()  # b z -> b c h w
 
         # simulated attacks
-        x_r = attack_layer(x_w, x0)
+        x_r = attack_layer(x_w, x0) if attack_layer is not None else x_w
         # extract watermark
         m_hat = msg_decoder(img_transform(x_r))  # b c h w -> b k
 

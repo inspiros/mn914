@@ -51,7 +51,7 @@ The watermark extractor used is the pretrained weights published by the authors.
 ##### 2.2.1. Baseline
 
 ```cmd
-python finetune_r3gan.py r3gan_cifar10 --num_keys 1 \
+python finetune_r3gan.py r3gan_cifar10_baseline --num_keys 1 \
     --num_bits 48 --img_size 32 --batch_size 128 \
     --steps 2000 --eval_steps 100 \
     --generator_ckpt ../ckpts/r3gan_cifar10.pkl \

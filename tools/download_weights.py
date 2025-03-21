@@ -49,7 +49,7 @@ def main():
                  skip_existing=True)
 
     # r3gan
-    download('https://huggingface.co/brownvc/R3GAN-CIFAR10/blob/main/network-snapshot-final.pkl',
+    download('https://huggingface.co/brownvc/R3GAN-CIFAR10/resolve/main/network-snapshot-final.pkl?download=true',
              os.path.join(ckpts_path, 'r3gan_cifar10.pkl'),
              skip_existing=True)
 
