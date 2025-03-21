@@ -1,8 +1,8 @@
 """
-Train script for DCGAN model on MNIST dataset.
+Train script for DCGAN model on CIFAR10 dataset.
 
 Usage:
-    python train.py --dataset mnist --dataroot data --image_size 28 --cuda --outf . --epochs 100
+    python train.py --dataset cifar10 --dataroot data --image_size 32 --cuda --outf outputs --epochs 100
 
 Reference: https://raw.githubusercontent.com/pytorch/examples/master/dcgan/main.py
 """
@@ -22,7 +22,7 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from stable_signature.models.dcgan.dcgan import Generator, Discriminator
 
@@ -49,8 +49,10 @@ def parse_args():
                         help='number of data loading workers', default=2)
     parser.add_argument('--batch_size', type=int, default=128,
                         help='input batch size')
-    parser.add_argument('--img_size', type=int, default=28,
+    parser.add_argument('--img_size', type=int, default=32,
                         help='the height / width of the input image to network')
+    parser.add_argument('--nc', type=int, default=3,
+                        help='size of the latent z vector')
     parser.add_argument('--nz', type=int, default=64,
                         help='size of the latent z vector')
     parser.add_argument('--ngf', type=int, default=64)
@@ -73,7 +75,7 @@ def parse_args():
                         help='folder to output images and model checkpoints')
     parser.add_argument('--ckpt_freq', type=int, default=5,
                         help='checkpointing frequency')
-    parser.add_argument('--manual_seed', type=int,
+    parser.add_argument('--manual_seed', type=int, default=None,
                         help='manual seed')
 
     params = parser.parse_args()
@@ -97,11 +99,13 @@ def main():
         if device.type.startswith('cuda'):
             torch.cuda.manual_seed(params.manual_seed)
 
-    dataset = datasets.MNIST(
+    dataset = datasets.CIFAR10(
         root=params.dataroot, download=True,
         transform=transforms.Compose([
             transforms.Resize(params.img_size),
             transforms.ToTensor(),
+            # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)) if params.nc == 3 else
             transforms.Normalize((0.5,), (0.5,)),
         ]))
     assert dataset
@@ -110,13 +114,13 @@ def main():
 
     nz = int(params.nz)
 
-    netG = Generator(1, nz=params.nz, ngf=params.ngf).to(device)
+    netG = Generator(params.nc, nz=params.nz, ngf=params.ngf).to(device)
     netG.apply(init_weights)
     if params.netG != '':
         netG.load_state_dict(torch.load(params.netG))
     print(netG)
 
-    netD = Discriminator(1, ndf=params.ndf).to(device)
+    netD = Discriminator(params.nc, ndf=params.ndf).to(device)
     netD.apply(init_weights)
     if params.netD != '':
         netD.load_state_dict(torch.load(params.netD))
@@ -158,7 +162,7 @@ def main():
 
             # gradient penalty
             if params.use_dragan:
-                alpha = torch.rand(batch_size, 1, device=device).expand(X.size())
+                alpha = torch.rand(batch_size, 1, 1, 1, device=device).expand_as(X)
                 X_hat = torch.tensor(
                     alpha * X.data + (1 - alpha) * (X.data + 0.5 * X.data.std() * torch.rand_like(X)),
                     requires_grad=True)
