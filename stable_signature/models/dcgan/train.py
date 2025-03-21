@@ -162,9 +162,10 @@ def main():
 
             # gradient penalty
             if params.use_dragan:
-                alpha = torch.rand(batch_size, 1, 1, 1, device=device).expand_as(X)
+                alpha = torch.rand(batch_size, 1, 1, 1, device=device).expand_as(X_real)
                 X_hat = torch.tensor(
-                    alpha * X.data + (1 - alpha) * (X.data + 0.5 * X.data.std() * torch.rand_like(X)),
+                    alpha * X_real.data +
+                    (1 - alpha) * (X_real.data + 0.5 * X_real.data.std() * torch.rand_like(X_real)),
                     requires_grad=True)
                 output = netD(X_hat)
                 gradients = autograd.grad(
