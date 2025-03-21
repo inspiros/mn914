@@ -203,7 +203,7 @@ def main():
                            f'{params.outf}/fake_samples_{epoch:03d}.png',
                            normalize=True)
 
-        if epoch % params.ckpt_freq == 0:
+        if epoch % params.ckpt_freq == 0 or epoch == params.epochs:
             torch.save(generator.state_dict(), f'{params.outf}/generator_{epoch:03d}.pth')
             torch.save(discriminator.state_dict(), f'{params.outf}/discriminator_{epoch:03d}.pth')
 

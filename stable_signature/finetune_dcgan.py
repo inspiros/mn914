@@ -106,6 +106,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Eval parameters')
     g.add_argument('--eval_steps', type=int, default=100,
                    help='Number of steps to evaluate the model for')
+    g.add_argument('--eval_freq', type=int, default=200,
+                   help='Eval frequency')
     g.add_argument('--eval_seed', type=int, default=1)
 
     g = parser.add_argument_group('Logging and saving freq. parameters')
@@ -293,6 +295,8 @@ def main():
         key = torch.randint(0, 2, (1, params.num_bits), dtype=torch.float32, device=params.device)
         key_str = ''.join([str(int(ii)) for ii in key.tolist()[0]])
         print(f'Key: {key_str}')
+        with (Path(params.output_dir) / 'keys.txt').open('a') as f:
+            f.write(f'{ii_key:03d}\t{key_str}\n')
 
         # Copy the Generator and finetune the copy
         G = deepcopy(G0).to(params.device)
@@ -303,26 +307,27 @@ def main():
 
         # Training loop
         print(f'>>> Training...')
-        train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
-                            G0, G, attack_layer, msg_decoder, img_transform, key, metrics, params)
-        val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, params)
-        log_stats = {'key': key_str,
-                     **{f'train_{k}': v for k, v in train_stats.items()},
-                     **{f'val_{k}': v for k, v in val_stats.items()},
-                     }
-        save_dict = {
-            'generator': G.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'params': params,
-        }
+        start_iter = 0
+        while start_iter < params.steps:
+            train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
+                                G0, G, attack_layer, msg_decoder, img_transform, key, metrics, start_iter + 1, params)
+            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, params)
+            start_iter = min(start_iter + params.eval_freq, params.steps)
+            log_stats = {'it': start_iter,
+                         **{f'train_{k}': v for k, v in train_stats.items()},
+                         **{f'val_{k}': v for k, v in val_stats.items()},
+                         }
+            save_dict = {
+                'generator': G.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'params': params,
+            }
 
-        # Save checkpoint
-        torch.save(save_dict, os.path.join(params.output_dir, f'checkpoint_{ii_key:03d}.pth'))
-        with (Path(params.output_dir) / 'log.txt').open('a') as f:
-            f.write(json.dumps(log_stats) + '\n')
-        with (Path(params.output_dir) / 'keys.txt').open('a') as f:
-            f.write(os.path.join(params.output_dir, f'checkpoint_{ii_key:03d}.pth') + '\t' + key_str + '\n')
-        print('\n')
+            # Save checkpoint
+            torch.save(save_dict, os.path.join(params.output_dir, f'checkpoint_{ii_key:03d}.pth'))
+            with (Path(params.output_dir) / f'log_{ii_key:03d}.txt').open('a') as f:
+                f.write(json.dumps(log_stats) + '\n')
+            print('\n')
 
 
 def itemize(tensor):
@@ -333,7 +338,7 @@ def itemize(tensor):
 
 def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
           G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
-          key: torch.Tensor, metrics: Dict, params: argparse.Namespace):
+          key: torch.Tensor, metrics: Dict, start_iter: int, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger()
     G.train()
@@ -341,7 +346,8 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
     base_lr = optimizer.param_groups[0]['lr']
     m = key.repeat(params.batch_size, 1)
     ori_msgs = torch.sign(m) > 0
-    for it in metric_logger.log_every(range(1, params.steps + 1), params.log_freq, header):
+    for it in metric_logger.log_every(range(start_iter, min(start_iter + params.eval_freq, params.steps) + 1),
+                                      params.log_freq, header):
         utils.adjust_learning_rate(optimizer, it, params.steps, params.warmup_steps, base_lr)
         # random latent vector
         z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device)  # b z 1 1
