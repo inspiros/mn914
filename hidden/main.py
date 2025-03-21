@@ -594,7 +594,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader,
             'loss_i': itemize(loss_i),
             'loss_p': itemize(loss_p),
             'bit_acc': torch.mean(bit_accs).item(),
-            'word_acc': torch.mean(word_accs.type(torch.float)).item(),
+            'word_acc': torch.mean(word_accs.float()).item(),
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
 

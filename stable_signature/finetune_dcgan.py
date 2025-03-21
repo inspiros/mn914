@@ -427,7 +427,7 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
             bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
             word_accs = (bit_accs == 1)  # b
             log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
-            log_stats[f'word_acc_{name}'] = torch.mean(word_accs).item()
+            log_stats[f'word_acc_{name}'] = torch.mean(word_accs.float()).item()
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 

@@ -13,6 +13,7 @@ import random
 import sys
 
 import torch
+import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
@@ -50,10 +51,12 @@ def parse_args():
                         help='input batch size')
     parser.add_argument('--img_size', type=int, default=32,
                         help='the height / width of the input image to network')
-    parser.add_argument('--nz', type=int, default=100,
+    parser.add_argument('--nz', type=int, default=64,
                         help='size of the latent z vector')
     parser.add_argument('--ngf', type=int, default=64)
     parser.add_argument('--ndf', type=int, default=64)
+    parser.add_argument('--use_dragan', action='store_true', default=False)
+    parser.add_argument('--dragan_lambda', type=float, default=10.0)
     parser.add_argument('--epochs', type=int, default=25,
                         help='number of epochs to train for')
     parser.add_argument('--lr', type=float, default=0.0002,
@@ -152,8 +155,24 @@ def main():
             output = netD(fake.detach())
             errD_fake = criterion(output, label)
             errD_fake.backward()
+
+            # gradient penalty
+            if params.use_dragan:
+                alpha = torch.rand(batch_size, 1).expand(X.size())
+                X_hat = torch.tensor(
+                    alpha * X.data + (1 - alpha) * (X.data + 0.5 * X.data.std() * torch.rand(X.size())),
+                    requires_grad=True)
+                output = netD(X_hat)
+                gradients = autograd.grad(
+                    outputs=output, inputs=X_hat, grad_outputs=torch.ones_like(output),
+                    create_graph=True, retain_graph=True, only_inputs=True)[0]
+                gradient_penalty = params.dragan_lambda * ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+                gradient_penalty.backward()
+            else:
+                gradient_penalty = 0
+
             D_G_z1 = output.mean().item()
-            errD = errD_real + errD_fake
+            errD = errD_real + errD_fake + gradient_penalty
             optimD.step()
 
             ############################
