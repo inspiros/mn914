@@ -1,1 +1,1 @@
-from .dcgan_provider import *
+from .dcgan import *

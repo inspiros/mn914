@@ -24,7 +24,7 @@ from torchvision.utils import save_image
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stable_signature.models.dcgan.dcgan_mnist import Generator, Discriminator
+from stable_signature.models.dcgan.dcgan import Generator, Discriminator
 
 
 def init_weights(m: nn.Module) -> None:
@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument('--ndf', type=int, default=64)
     parser.add_argument('--use_dragan', action='store_true', default=False)
     parser.add_argument('--dragan_lambda', type=float, default=10.0)
-    parser.add_argument('--epochs', type=int, default=25,
+    parser.add_argument('--epochs', type=int, default=100,
                         help='number of epochs to train for')
     parser.add_argument('--lr', type=float, default=0.0002,
                         help='learning rate, default=0.0002')
@@ -110,13 +110,13 @@ def main():
 
     nz = int(params.nz)
 
-    netG = Generator().to(device)
+    netG = Generator(1, nz=params.nz, ngf=params.ngf).to(device)
     netG.apply(init_weights)
     if params.netG != '':
         netG.load_state_dict(torch.load(params.netG))
     print(netG)
 
-    netD = Discriminator().to(device)
+    netD = Discriminator(1, ndf=params.ndf).to(device)
     netD.apply(init_weights)
     if params.netD != '':
         netD.load_state_dict(torch.load(params.netD))
@@ -158,9 +158,9 @@ def main():
 
             # gradient penalty
             if params.use_dragan:
-                alpha = torch.rand(batch_size, 1).expand(X.size())
+                alpha = torch.rand(batch_size, 1, device=device).expand(X.size())
                 X_hat = torch.tensor(
-                    alpha * X.data + (1 - alpha) * (X.data + 0.5 * X.data.std() * torch.rand(X.size())),
+                    alpha * X.data + (1 - alpha) * (X.data + 0.5 * X.data.std() * torch.rand_like(X)),
                     requires_grad=True)
                 output = netD(X_hat)
                 gradients = autograd.grad(
