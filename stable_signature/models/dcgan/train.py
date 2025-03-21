@@ -144,6 +144,8 @@ def main():
     for epoch in range(1, params.epochs + 1):
         for i, (X, _) in enumerate(dataloader):
             X_real = X.to(device)
+            if params.use_wgan_div:
+                X_real.requires_grad_(True)
             batch_size = X_real.size(0)
             ############################
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
@@ -163,7 +165,7 @@ def main():
             if params.use_wgan_div:
                 # Compute W-div gradient penalty
                 real_grad = autograd.grad(
-                    real_validity, torch.tensor(X_real.data, requires_grad=True),
+                    real_validity, X_real,
                     grad_outputs=torch.ones_like(real_validity),
                     create_graph=True, retain_graph=True, only_inputs=True
                 )[0]
@@ -215,7 +217,7 @@ def main():
                       f'Loss_D: {loss_d.item():.4f} Loss_G: {loss_g.item():.4f}')
 
             if i == 0:
-                save_image(X_real,
+                save_image(X_real.detach(),
                            f'{params.outf}/real_samples.png',
                            normalize=True)
                 X_fake = generator(fixed_noise)
