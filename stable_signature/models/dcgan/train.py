@@ -28,7 +28,7 @@ from stable_signature.models.dcgan.dcgan import Generator, Discriminator
 
 
 def init_weights(m: nn.Module) -> None:
-    r"""Custom weights initialization for netG and netD"""
+    r"""Custom weights initialization for generator and discriminator"""
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
         m.weight.data.normal_(0.0, 0.02)
@@ -61,19 +61,21 @@ def parse_args():
     parser.add_argument('--dragan_lambda', type=float, default=10.0)
     parser.add_argument('--epochs', type=int, default=100,
                         help='number of epochs to train for')
-    parser.add_argument('--lr', type=float, default=0.0002,
+    parser.add_argument('--lr_d', type=float, default=0.0002,
                         help='learning rate, default=0.0002')
+    parser.add_argument('--lr_g', type=float, default=0.001,
+                        help='generator learning rate, default=0.0002')
     parser.add_argument('--beta1', type=float, default=0.5,
                         help='beta1 for adam. default=0.5')
     parser.add_argument('--device', default='cuda:0',
                         help='device to use for training')
-    parser.add_argument('--netG', default='',
-                        help='path to netG (to continue training)')
-    parser.add_argument('--netD', default='',
-                        help='path to netD (to continue training)')
+    parser.add_argument('--generator', default='',
+                        help='path to generator (to continue training)')
+    parser.add_argument('--discriminator', default='',
+                        help='path to discriminator (to continue training)')
     parser.add_argument('--outf', default='outputs',
                         help='folder to output images and model checkpoints')
-    parser.add_argument('--ckpt_freq', type=int, default=5,
+    parser.add_argument('--ckpt_freq', type=int, default=50,
                         help='checkpointing frequency')
     parser.add_argument('--manual_seed', type=int, default=None,
                         help='manual seed')
@@ -114,17 +116,17 @@ def main():
 
     nz = int(params.nz)
 
-    netG = Generator(params.nc, nz=params.nz, ngf=params.ngf).to(device)
-    netG.apply(init_weights)
-    if params.netG != '':
-        netG.load_state_dict(torch.load(params.netG))
-    print(netG)
+    generator = Generator(params.nc, nz=params.nz, ngf=params.ngf).to(device)
+    generator.apply(init_weights)
+    if params.generator != '':
+        generator.load_state_dict(torch.load(params.generator))
+    print(generator)
 
-    netD = Discriminator(params.nc, ndf=params.ndf).to(device)
-    netD.apply(init_weights)
-    if params.netD != '':
-        netD.load_state_dict(torch.load(params.netD))
-    print(netD)
+    discriminator = Discriminator(params.nc, ndf=params.ndf).to(device)
+    discriminator.apply(init_weights)
+    if params.discriminator != '':
+        discriminator.load_state_dict(torch.load(params.discriminator))
+    print(discriminator)
 
     criterion = nn.BCELoss()
 
@@ -133,32 +135,31 @@ def main():
     fake_label = 0
 
     # setup optimizer
-    optimD = optim.Adam(netD.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
-    optimG = optim.Adam(netG.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
+    optim_d = optim.Adam(discriminator.parameters(), lr=params.lr_d, betas=(params.beta1, 0.999))
+    optim_g = optim.Adam(generator.parameters(), lr=params.lr_g, betas=(params.beta1, 0.999))
 
-    for epoch in range(params.epochs):
+    for epoch in range(1, params.epochs + 1):
         for i, (X, _) in enumerate(dataloader):
-            batch_size = X.size(0)
+            X_real = X.to(device)
+            batch_size = X_real.size(0)
             ############################
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
             ###########################
             # train with real
-            netD.zero_grad()
-            X_real = X.to(device)
+            discriminator.zero_grad()
             label = torch.full((batch_size,), real_label, device=device).float()
 
-            output = netD(X_real)
-            errD_real = criterion(output, label)
-            errD_real.backward()
-            D_x = output.mean().item()
+            output = discriminator(X_real)
+            loss_d_real = criterion(output, label)
+            loss_d_real.backward()
 
             # train with fake
             noise = torch.randn(batch_size, nz, 1, 1, device=device)
-            fake = netG(noise)
+            fake = generator(noise)
             label.fill_(fake_label)
-            output = netD(fake.detach())
-            errD_fake = criterion(output, label)
-            errD_fake.backward()
+            output = discriminator(fake.detach())
+            loss_d_fake = criterion(output, label)
+            loss_d_fake.backward()
 
             # gradient penalty
             if params.use_dragan:
@@ -167,7 +168,7 @@ def main():
                     alpha * X_real.data +
                     (1 - alpha) * (X_real.data + 0.5 * X_real.data.std() * torch.rand_like(X_real)),
                     requires_grad=True)
-                output = netD(X_hat)
+                output = discriminator(X_hat)
                 gradients = autograd.grad(
                     outputs=output, inputs=X_hat, grad_outputs=torch.ones_like(output),
                     create_graph=True, retain_graph=True, only_inputs=True)[0]
@@ -176,36 +177,35 @@ def main():
             else:
                 gradient_penalty = 0
 
-            D_G_z1 = output.mean().item()
-            errD = errD_real + errD_fake + gradient_penalty
-            optimD.step()
+            loss_d = loss_d_real + loss_d_fake + gradient_penalty
+            optim_d.step()
 
             ############################
             # (2) Update G network: maximize log(D(G(z)))
             ###########################
-            netG.zero_grad()
+            generator.zero_grad()
+            noise = torch.randn(batch_size, nz, 1, 1, device=device)
+            fake = generator(noise)
+            output = discriminator(fake)
             label.fill_(real_label)  # fake labels are real for generator cost
-            output = netD(fake)
-            errG = criterion(output, label)
-            errG.backward()
-            D_G_z2 = output.mean().item()
-            optimG.step()
+            loss_g = criterion(output, label)
+            loss_g.backward()
+            optim_g.step()
 
-            print(f'[{epoch + 1}/{params.epochs}][{i}/{len(dataloader)}] '
-                  f'Loss_D: {errD.item():.4f} Loss_G: {errG.item():.4f} '
-                  f'D(x): {D_x:.4f} D(G(z)): {D_G_z1:.4f} / {D_G_z2:.4f}')
-            if i % 100 == 0:
+            print(f'[{epoch}/{params.epochs}][{i}/{len(dataloader)}] '
+                  f'Loss_D: {loss_d.item():.4f} Loss_G: {loss_g.item():.4f}')
+            if i == 0:
                 save_image(X_real,
                            f'{params.outf}/real_samples.png',
                            normalize=True)
-                fake = netG(fixed_noise)
+                fake = generator(fixed_noise)
                 save_image(fake.detach(),
                            f'{params.outf}/fake_samples_{epoch:03d}.png',
                            normalize=True)
 
-        if (epoch + 1) % params.ckpt_freq == 0:
-            torch.save(netG.state_dict(), f'{params.outf}/netG_{epoch:03d}.pth')
-            torch.save(netD.state_dict(), f'{params.outf}/netD_{epoch:03d}.pth')
+        if epoch % params.ckpt_freq == 0:
+            torch.save(generator.state_dict(), f'{params.outf}/generator_{epoch:03d}.pth')
+            torch.save(discriminator.state_dict(), f'{params.outf}/discriminator_{epoch:03d}.pth')
 
 
 if __name__ == '__main__':

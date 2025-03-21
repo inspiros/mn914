@@ -5,7 +5,7 @@ __all__ = ['Generator', 'Discriminator']
 
 
 class Generator(nn.Module):
-    def __init__(self, nc: int = 3, nz: int = 100, ngf: int = 64):
+    def __init__(self, nc: int = 3, nz: int = 64, ngf: int = 64):
         super(Generator, self).__init__()
         self.main = nn.Sequential(
             # input is Z, going into a convolution
