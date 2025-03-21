@@ -158,9 +158,11 @@ def main():
 
             # train with fake
             noise = torch.randn(batch_size, nz, 1, 1, device=device)
-            X_fake = generator(noise)
+            X_fake = generator(noise).detach()
+            if params.use_wgan_div:
+                X_fake.requires_grad_(True)
             label.fill_(fake_label)
-            fake_validity = discriminator(X_fake.detach())
+            fake_validity = discriminator(X_fake)
 
             if params.use_wgan_div:
                 # Compute W-div gradient penalty
