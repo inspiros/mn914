@@ -163,7 +163,8 @@ def main():
             if params.use_wgan_div:
                 # Compute W-div gradient penalty
                 real_grad = autograd.grad(
-                    real_validity, X_real, grad_outputs=torch.ones_like(real_validity),
+                    real_validity, torch.tensor(X_real.data, requires_grad=True),
+                    grad_outputs=torch.ones_like(real_validity),
                     create_graph=True, retain_graph=True, only_inputs=True
                 )[0]
                 real_grad_norm = real_grad.norm(2, dim=1)
