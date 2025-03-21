@@ -391,8 +391,6 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
-        if it % params.log_freq == 0:
-            print(json.dumps(log_stats))
 
         # save images during training
         if it % params.save_img_freq == 0:

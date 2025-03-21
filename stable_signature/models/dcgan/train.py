@@ -57,6 +57,7 @@ def parse_args():
                         help='size of the latent z vector')
     parser.add_argument('--ngf', type=int, default=64)
     parser.add_argument('--ndf', type=int, default=64)
+    parser.add_argument('--use_wgan_div', action='store_true', default=False)
     parser.add_argument('--use_dragan', action='store_true', default=False)
     parser.add_argument('--dragan_lambda', type=float, default=10.0)
     parser.add_argument('--epochs', type=int, default=100,
@@ -73,6 +74,8 @@ def parse_args():
                         help='path to generator (to continue training)')
     parser.add_argument('--discriminator', default='',
                         help='path to discriminator (to continue training)')
+    parser.add_argument('--n_critic', type=int, default=5,
+                        help='number of training steps for discriminator per iter')
     parser.add_argument('--outf', default='outputs',
                         help='folder to output images and model checkpoints')
     parser.add_argument('--ckpt_freq', type=int, default=50,
@@ -149,17 +152,34 @@ def main():
             discriminator.zero_grad()
             label = torch.full((batch_size,), real_label, device=device).float()
 
-            output = discriminator(X_real)
-            loss_d_real = criterion(output, label)
-            loss_d_real.backward()
+            real_validity = discriminator(X_real)
 
             # train with fake
             noise = torch.randn(batch_size, nz, 1, 1, device=device)
-            fake = generator(noise)
+            X_fake = generator(noise)
             label.fill_(fake_label)
-            output = discriminator(fake.detach())
-            loss_d_fake = criterion(output, label)
-            loss_d_fake.backward()
+            fake_validity = discriminator(X_fake.detach())
+
+            if params.use_wgan_div:
+                # Compute W-div gradient penalty
+                real_grad = autograd.grad(
+                    real_validity, X_real, grad_outputs=torch.ones_like(real_validity),
+                    create_graph=True, retain_graph=True, only_inputs=True
+                )[0]
+                real_grad_norm = real_grad.norm(2, dim=1)
+
+                fake_grad = autograd.grad(
+                    fake_validity, X_fake, grad_outputs=torch.ones_like(fake_validity),
+                    create_graph=True, retain_graph=True, only_inputs=True
+                )[0]
+                fake_grad_norm = fake_grad.norm(2, dim=1)
+
+                div_gp = torch.mean(real_grad_norm + fake_grad_norm)
+                loss_d = -torch.mean(real_validity) + torch.mean(fake_validity) + div_gp
+            else:
+                loss_d_real = criterion(real_validity, label)
+                loss_d_fake = criterion(fake_validity, label)
+                loss_d = loss_d_real + loss_d_fake
 
             # gradient penalty
             if params.use_dragan:
@@ -168,38 +188,37 @@ def main():
                     alpha * X_real.data +
                     (1 - alpha) * (X_real.data + 0.5 * X_real.data.std() * torch.rand_like(X_real)),
                     requires_grad=True)
-                output = discriminator(X_hat)
+                perm_validity = discriminator(X_hat)
                 gradients = autograd.grad(
-                    outputs=output, inputs=X_hat, grad_outputs=torch.ones_like(output),
+                    perm_validity, X_hat, grad_outputs=torch.ones_like(perm_validity),
                     create_graph=True, retain_graph=True, only_inputs=True)[0]
                 gradient_penalty = params.dragan_lambda * ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-                gradient_penalty.backward()
-            else:
-                gradient_penalty = 0
+                loss_d += gradient_penalty
 
-            loss_d = loss_d_real + loss_d_fake + gradient_penalty
+            loss_d.backward()
             optim_d.step()
 
-            ############################
-            # (2) Update G network: maximize log(D(G(z)))
-            ###########################
-            generator.zero_grad()
-            noise = torch.randn(batch_size, nz, 1, 1, device=device)
-            fake = generator(noise)
-            output = discriminator(fake)
-            label.fill_(real_label)  # fake labels are real for generator cost
-            loss_g = criterion(output, label)
-            loss_g.backward()
-            optim_g.step()
+            if i % params.n_critic == 0:
+                ############################
+                # (2) Update G network: maximize log(D(G(z)))
+                ###########################
+                generator.zero_grad()
+                noise = torch.randn(batch_size, nz, 1, 1, device=device)
+                X_fake = generator(noise)
+                fake_validity = discriminator(X_fake)
+                label.fill_(real_label)  # fake labels are real for generator cost
+                loss_g = criterion(fake_validity, label)
+                loss_g.backward()
+                optim_g.step()
+                print(f'[{epoch}/{params.epochs}][{i}/{len(dataloader)}] '
+                      f'Loss_D: {loss_d.item():.4f} Loss_G: {loss_g.item():.4f}')
 
-            print(f'[{epoch}/{params.epochs}][{i}/{len(dataloader)}] '
-                  f'Loss_D: {loss_d.item():.4f} Loss_G: {loss_g.item():.4f}')
             if i == 0:
                 save_image(X_real,
                            f'{params.outf}/real_samples.png',
                            normalize=True)
-                fake = generator(fixed_noise)
-                save_image(fake.detach(),
+                X_fake = generator(fixed_noise)
+                save_image(X_fake.detach(),
                            f'{params.outf}/fake_samples_{epoch:03d}.png',
                            normalize=True)
 
