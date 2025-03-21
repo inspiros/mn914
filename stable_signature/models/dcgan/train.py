@@ -155,6 +155,7 @@ def main():
             label = torch.full((batch_size,), real_label, device=device).float()
             real_validity = discriminator(X_real)
             loss_d_real = criterion(real_validity, label)
+            loss_d_real.backward()
 
             # train with fake
             noise = torch.randn(batch_size, nz, 1, 1, device=device)
@@ -164,8 +165,7 @@ def main():
             label.fill_(fake_label)
             fake_validity = discriminator(X_fake)
             loss_d_fake = criterion(fake_validity, label)
-
-            loss_d = loss_d_real + loss_d_fake
+            loss_d_fake.backward()
 
             if params.use_wgan_div:
                 # Compute W-div gradient penalty
@@ -183,7 +183,7 @@ def main():
                 fake_grad_norm = fake_grad.norm(2, dim=1)
 
                 div_gp = torch.mean(real_grad_norm + fake_grad_norm)
-                loss_d += div_gp
+                div_gp.backward()
 
             # gradient penalty
             if params.use_dragan:
@@ -197,9 +197,9 @@ def main():
                     perm_validity, X_hat, grad_outputs=torch.ones_like(perm_validity),
                     create_graph=True, retain_graph=True, only_inputs=True)[0]
                 gradient_penalty = params.dragan_lambda * ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-                loss_d += gradient_penalty
+                gradient_penalty.backward()
 
-            loss_d.backward()
+            loss_d = loss_d_real + loss_d_fake
             optim_d.step()
 
             if i % params.n_critic == 0:
