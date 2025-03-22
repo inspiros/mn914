@@ -13,6 +13,20 @@ python tools/download_weights.py
 
 ### 2. Run
 
+#### 2.0 HiDDeN on MNIST
+
+```cmd
+python main.py mnist \
+    --dataset MNIST --img_size 28 --img_channels 1 \
+    --num_bits 32 --batch_size 16 --epochs 200 --eval_freq 5 \
+    --encoder hidden --generate_delta True --decoder hidden \
+    --optimizer Lamb,lr=2e-2 \
+    --scheduler CosineLRScheduler,lr_min=1e-6,t_initial=200,warmup_lr_init=1e-6,warmup_t=5 \
+    --scaling_w 0.3 --scale_channels False --attenuation none \
+    --loss_w bce --loss_i mse --loss_p watson-vgg \
+    --lambda_w 1 --lambda_i 0.02 --lambda_p 0.8
+```
+
 #### 2.1. HiDDeN using U-Net-based watermark encoder
 
 First, change working directory to [`hidden`](hidden):

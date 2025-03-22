@@ -43,6 +43,10 @@ class EncoderDecoder(nn.Module):
         else:
             self.register_buffer('std', torch.tensor(std, dtype=torch.float32))
 
+    def encoder_wrapper(self) -> 'EncoderWithJND':
+        return EncoderWithJND(self.encoder, self.attenuation, self.generate_delta, self.scale_channels,
+                              self.scaling_i, self.scaling_w, self.std)
+
     def forward(self,
                 x0: torch.Tensor,
                 m: torch.Tensor,
@@ -100,7 +104,8 @@ class EncoderWithJND(nn.Module):
                  generate_delta: bool,
                  scale_channels: bool,
                  scaling_i: float,
-                 scaling_w: float):
+                 scaling_w: float,
+                 std: Optional[Tuple[int, ...]] = None):
         super().__init__()
         self.encoder = encoder
         self.attenuation = attenuation
@@ -109,6 +114,11 @@ class EncoderWithJND(nn.Module):
         self.scale_channels = scale_channels
         self.scaling_i = scaling_i
         self.scaling_w = scaling_w
+        # scaling std
+        if std is None:
+            self.register_buffer('std', None)
+        else:
+            self.register_buffer('std', torch.tensor(std, dtype=torch.float32))
 
     def forward(self, x0: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
         r""" Does the forward pass of the encoder only """
