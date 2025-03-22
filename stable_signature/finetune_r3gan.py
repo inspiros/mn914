@@ -303,7 +303,7 @@ def main():
         while start_iter < params.steps:
             train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
                                 G0, G, attack_layer, msg_decoder, img_transform, key, metrics, start_iter + 1, params)
-            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, params)
+            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, start_iter + 1, params)
             start_iter = min(start_iter + params.eval_freq, params.steps)
             log_stats = {'it': start_iter,
                          **{f'train_{k}': v for k, v in train_stats.items()},
@@ -399,7 +399,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
 
 @torch.no_grad()
 def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
-        key: torch.Tensor, eval_attacks: Dict, metrics: Dict, params: argparse.Namespace):
+        key: torch.Tensor, eval_attacks: Dict, metrics: Dict, start_iter: int, params: argparse.Namespace):
     header = 'Eval'
     metric_logger = utils.MetricLogger()
     G.eval()
@@ -426,17 +426,15 @@ def val(G0: nn.Module, G: nn.Module, msg_decoder: nn.Module, img_transform,
             m_hat = msg_decoder(x_r)  # b c h w -> b k
             decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
             bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
-            word_accs = bit_accs == 1  # b
             log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
-            log_stats[f'word_acc_{name}'] = torch.mean(word_accs.float()).item()
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
         if it == 1:
             save_image(torch.clamp(params.denormalize(x0), 0, 1),
-                       os.path.join(params.imgs_dir, f'{it:05d}_val_x0.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{start_iter:05d}_val_x0.png'), nrow=8)
             save_image(torch.clamp(params.denormalize(x_w), 0, 1),
-                       os.path.join(params.imgs_dir, f'{it:05d}_val_xw.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{start_iter:05d}_val_xw.png'), nrow=8)
 
     print(f'⭕ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
