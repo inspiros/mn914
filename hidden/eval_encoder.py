@@ -270,7 +270,7 @@ def eval_one_epoch(encoder: models.EncoderWithJND, loader, metrics, params):
     metric_logger = utils.MetricLogger()
 
     # assuring same keys generated
-    generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
+    generator = torch.Generator(device=params.device).manual_seed(params.seed)
     for it, (x0, _) in enumerate(metric_logger.log_every(loader, 10, f'- {header}')):
         x0 = x0.to(params.device, non_blocking=True)  # b c h w
 
