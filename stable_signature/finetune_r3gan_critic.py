@@ -215,7 +215,7 @@ def main():
     else:
         raise ValueError(f'Unknown message loss: {params.loss_w}')
 
-    critic_loss = nn.BCELoss()
+    critic_loss = nn.BCEWithLogitsLoss()
 
     if params.loss_d is None:
         distillation_loss = None
