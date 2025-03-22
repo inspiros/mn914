@@ -52,6 +52,9 @@ def main():
     download('https://huggingface.co/brownvc/R3GAN-CIFAR10/resolve/main/network-snapshot-final.pkl?download=true',
              os.path.join(ckpts_path, 'r3gan_cifar10.pkl'),
              skip_existing=True)
+    download('https://huggingface.co/brownvc/R3GAN-ImgNet-64x64/resolve/main/network-snapshot-final.pkl?download=true',
+             os.path.join(ckpts_path, 'r3gan_imgnet_64x64.pkl'),
+             skip_existing=True)
 
     # the rest
     ckpts_drive_url = 'https://drive.google.com/drive/folders/1NmnhY8MAXJfFrAItFcJq_13nX59OqxM0?usp=drive_link'
