@@ -161,11 +161,11 @@ def main():
     os.makedirs(params.imgs_dir, exist_ok=True)
 
     # Loads LDM auto-encoder models
-    print(f'>>> Building Generator...')
+    print(f'>>> Building Generator and Discriminator...')
     G0, D = r3gan.get_both(params.generator_ckpt)
-    G0.to(params.device);
+    G0.to(params.device)
     D.to(params.device)
-    G0.eval();
+    G0.eval()
     D.eval()
 
     # Loads attack layer
@@ -206,7 +206,7 @@ def main():
 
     # Create losses
     print(f'>>> Creating Losses...')
-    print(f'Losses: {params.loss_w}, {params.loss_i}, and {params.loss_d}...')
+    print(f'Losses: {params.loss_w}, {params.loss_c}, and {params.loss_d}...')
     if params.loss_w == 'mse':
         message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':

@@ -75,6 +75,18 @@ python finetune_r3gan.py r3gan_cifar10_baseline --num_keys 1 \
     --lambda_i 1 --lambda_w 0.1 --lambda_d 0
 ```
 
+- With critic loss:
+```cmd
+python finetune_r3gan_critic.py r3gan_cifar10_critic --num_keys 1 \
+    --num_bits 48 --img_size 32 --batch_size 16 \
+    --steps 3000 --eval_steps 100 \
+    --generator_ckpt ../ckpts/r3gan_cifar10.pkl \
+    --decoder_path ../ckpts/hidden_unet.pth \
+    --attack_layer none \
+    --loss_c bce --loss_w bce --loss_d none \
+    --lambda_c 1 --lambda_w 0.6 --lambda_d 0
+```
+
 ##### 2.2.2. With attack layer
 
 ```cmd
