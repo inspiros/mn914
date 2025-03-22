@@ -333,6 +333,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, critic_loss:
         # decode latents with original and fine-tuned decoder
         x0 = G0(z, label).float()  # b z -> b c h w
         x_w = G(z, label).float()  # b z -> b c h w
+        validity_w = D(x_w, label).float()
 
         # simulated attacks
         x_r = attack_layer(x_w, x0) if attack_layer is not None else x_w
@@ -341,7 +342,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, critic_loss:
 
         # compute loss
         loss_w = message_loss(m_hat, m)
-        loss_c = critic_loss(D(x_w), torch.ones((params.batch_size,), device=params.device))
+        loss_c = critic_loss(validity_w, torch.ones((params.batch_size,), device=params.device))
         loss_d = distillation_loss(x_w, x0) if distillation_loss is not None else 0
         loss = params.lambda_w * loss_w + params.lambda_c * loss_c + params.lambda_d * loss_d
 
