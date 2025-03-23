@@ -93,13 +93,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     if (params.data_mean is None) ^ (params.data_std is None):
         raise ValueError('Data mean and std are both required.')
 
-    if params.dist:
-        params.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
     # Print the arguments
     if verbose:
-        print('git:', utils.get_sha())
-        print(json.dumps(vars(params)))
+        print(params)
 
     return params
 
