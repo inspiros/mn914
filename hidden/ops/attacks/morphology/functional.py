@@ -29,9 +29,9 @@ def _apply(f: Callable, x: torch.Tensor, footprint: Any,
     """
     _check_grayscale(x)
     img = F.to_numpy_img(x, mean=mean, std=std)
-    out_img = np.empty_like(x)
+    out_img = np.empty_like(img)
     for i in range(x.size(0)):
-        out_img[i, 0] = f(img[i, 0], footprint=footprint).astype(np.uint8)
+        out_img[i, 0] = f(img[i, 0], footprint=footprint)
     return F.from_numpy_img(out_img, mean=mean, std=std, dtype=x.dtype, device=x.device)
 
 
