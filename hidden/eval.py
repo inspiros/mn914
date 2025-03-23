@@ -230,9 +230,9 @@ def main():
         'saturation_i': hidden_attacks.AdjustSaturation(
             1.25, mean=params.data_mean, std=params.data_std).to(params.device),
         'hue_d': hidden_attacks.AdjustHue(
-            0.9, mean=params.data_mean, std=params.data_std).to(params.device),
+            -0.1, mean=params.data_mean, std=params.data_std).to(params.device),
         'hue_i': hidden_attacks.AdjustHue(
-            1.1, mean=params.data_mean, std=params.data_std).to(params.device),
+            0.1, mean=params.data_mean, std=params.data_std).to(params.device),
         'sharpness_d': hidden_attacks.AdjustSharpness(
             0.75, mean=params.data_mean, std=params.data_std).to(params.device),
         'sharpness_i': hidden_attacks.AdjustSharpness(
@@ -257,6 +257,11 @@ def main():
             50, mean=params.data_mean, std=params.data_std).to(params.device),
     }
     if params.img_channels == 1:
+        # remove saturation and hue
+        for k in eval_attacks.keys():
+            if k.startswith('saturation') or k.startswith('hue'):
+                eval_attacks.pop(k)
+        # add morphology
         morphology_footprint = hidden_attacks.morphology.footprints.diamond(1)
         eval_attacks.update({
             'erosion': hidden_attacks.morphology.Erosion(
