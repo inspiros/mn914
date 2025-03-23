@@ -110,14 +110,6 @@ def main():
         torch.cuda.manual_seed_all(seed)
         np.random.seed(seed)
 
-    # Create output dirs
-    if not os.path.exists(params.output_dir):
-        os.makedirs(params.output_dir)
-    params.imgs_dir = os.path.join(params.output_dir, 'imgs')
-    os.makedirs(params.imgs_dir, exist_ok=True)
-    with open(os.path.join(params.output_dir, 'params.json'), 'w') as f:
-        json.dump(vars(params), f)
-
     # Normalization
     params.normalize = hidden_attacks.ImageNormalize(params.data_mean, params.data_std).to(params.device)
     params.denormalize = hidden_attacks.ImageDenormalize(params.data_mean, params.data_std).to(params.device)
@@ -320,7 +312,9 @@ def main():
 
     # create output dir
     params.output_dir = os.path.join(params.output_dir, 'eval')
+    params.imgs_dir = os.path.join(params.output_dir, 'imgs')
     os.makedirs(params.output_dir, exist_ok=True)
+    os.makedirs(params.imgs_dir, exist_ok=True)
     print('evaluating...')
     val_stats = eval_one_epoch(encoder_decoder, val_loader, eval_attacks, metrics, params)
     log_stats = {'epoch': start_epoch, **{f'val_{k}': v for k, v in val_stats.items()}}
@@ -380,7 +374,7 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, eval_attacks,
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if it == 0:
+        if it < 10:
             save_image(params.denormalize(x0),
                        os.path.join(params.imgs_dir, f'{it:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
