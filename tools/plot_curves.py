@@ -111,7 +111,7 @@ def main():
         # ax.set_title(metric)
 
         fig.tight_layout()
-        fig.savefig(os.path.join(fig_save_dir, metric + '.png'), transparent=True)
+        fig.savefig(os.path.join(fig_save_dir, metric + '.png'))
         if args.save_tex:
             tikzplotlib.save(os.path.join(fig_save_dir, metric + '.tex'))
         plt.close(fig)

@@ -9,11 +9,12 @@ from typing import Dict
 import numpy as np
 import torch
 import torch.nn as nn
+import torchvision.transforms as tv_transforms
 from torchvision.utils import save_image
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics
+from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics, transforms as hidden_transforms
 from hidden.models.attack_layers import HiddenAttackLayer
 from stable_signature import utils
 from stable_signature.models import hidden_utils
@@ -26,6 +27,12 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g = parser.add_argument_group('Data parameters')
     g.add_argument('exp', type=str, nargs='?', default=None, help='Experiment name')
+    g.add_argument('--dataset', type=str, default=None)
+    g.add_argument('--data_dir', type=str, default=os.path.join(project_root, 'data'))
+    g.add_argument('--train_dir', type=str, default=None)
+    g.add_argument('--val_dir', type=str, default=None)
+    g.add_argument('--output_dir', type=str, default='outputs',
+                   help='Output directory for logs and images (Default: output)')
     g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
     g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
 
@@ -73,6 +80,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g = parser.add_argument_group('Training parameters')
     g.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
+    g.add_argument('--workers', type=int, default=8,
+                   help='Number of workers for data loading. (Default: 8)')
     g.add_argument('--img_size', type=int, default=256, help='Resize images to this size')
     g.add_argument('--img_channels', type=int, default=3, help='Number of image channels.')
 
@@ -84,10 +93,14 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Weight of the image loss in the total loss')
     g.add_argument('--lambda_w', type=float, default=1.0,
                    help='Weight of the watermark loss in the total loss')
+    g.add_argument('--lambda_dragan', type=float, default=1.0,
+                   help='Weight of the DRAGAN gradient penalty')
     g.add_argument('--optimizer', type=str, default='AdamW,lr=5e-4',
                    help='Optimizer and learning rate for training')
     g.add_argument('--steps', type=int, default=100,
                    help='Number of steps to train the model for')
+    g.add_argument('--critic_steps', type=int, default=5,
+                   help='Number of steps to train the discriminator')
     g.add_argument('--warmup_steps', type=int, default=20,
                    help='Number of warmup steps for the optimizer')
 
@@ -110,8 +123,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Experiments parameters')
     g.add_argument('--num_keys', type=int, default=1,
                    help='Number of fine-tuned checkpoints to generate')
-    g.add_argument('--output_dir', type=str, default='outputs',
-                   help='Output directory for logs and images (Default: output)')
     g.add_argument('--seed', type=int, default=0)
 
     params = parser.parse_args()
@@ -122,9 +133,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     if params.attack_layer is not None:
         if params.attack_layer.lower() == 'none':
             params.attack_layer = None
-    if params.loss_d is not None:
-        if params.loss_d.lower() == 'none':
-            params.loss_d = None
 
     # Print the arguments
     if verbose:
@@ -146,6 +154,21 @@ def main():
     # Normalization
     params.normalize = hidden_attacks.ImageNormalize(mean=params.data_mean, std=params.data_std).to(params.device)
     params.denormalize = hidden_attacks.ImageDenormalize(mean=params.data_mean, std=params.data_std).to(params.device)
+
+    # Data loaders
+    train_transform = tv_transforms.Compose([
+        tv_transforms.Resize(params.img_size),
+        tv_transforms.CenterCrop(params.img_size),
+        tv_transforms.ToTensor(),
+        hidden_transforms.Normalize(params.data_mean, params.data_std),
+    ])
+    if params.dataset is not None:
+        train_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=True,
+                                            transform=train_transform, batch_size=params.batch_size,
+                                            num_workers=params.workers, shuffle=True)
+    else:
+        train_loader = utils.get_dataloader(params.train_dir, transform=train_transform, batch_size=params.batch_size,
+                                            num_workers=params.workers, shuffle=True)
 
     # Create output dirs
     if not os.path.exists(params.output_dir):
@@ -201,7 +224,7 @@ def main():
 
     # Create losses
     print(f'>>> Creating Losses...')
-    print(f'Losses: {params.loss_w}, {params.loss_c}, and {params.loss_d}...')
+    print(f'Losses: {params.loss_w} and {params.loss_c}...')
     if params.loss_w == 'mse':
         message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
@@ -258,14 +281,14 @@ def main():
         for param in G.parameters():
             param.requires_grad = True
         optim_params = utils.parse_initializer_params(params.optimizer)
-        G_optim = utils.build_optimizer(model_params=G.parameters(), **optim_params)
-        D_optim = utils.build_optimizer(model_params=D.parameters(), **{**optim_params, 'lr': optim_params['lr'] / 10})
+        optim_g = utils.build_optimizer(model_params=G.parameters(), **optim_params)
+        optim_d = utils.build_optimizer(model_params=D.parameters(), **{**optim_params, 'lr': optim_params['lr'] / 10})
 
         # Training loop
         print(f'>>> Training...')
         start_iter = 0
         while start_iter < params.steps:
-            train_stats = train(G_optim, D_optim, message_loss, critic_loss,
+            train_stats = train(train_loader, optim_g, optim_d, message_loss, critic_loss,
                                 G, D, attack_layer, msg_decoder, img_transform, key,
                                 metrics, start_iter + 1, params)
             val_stats = val(G, msg_decoder, img_transform, key, eval_attacks,
@@ -293,24 +316,64 @@ def itemize(tensor):
     return tensor
 
 
-def train(G_optim: torch.optim.Optimizer, D_optim: torch.optim.Optimizer, message_loss, critic_loss,
+def train(train_loader, optim_g: torch.optim.Optimizer, optim_d: torch.optim.Optimizer, message_loss, critic_loss,
           G: nn.Module, D: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, metrics: Dict, start_iter: int, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger()
     G.train()
 
-    base_lr = G_optim.param_groups[0]['lr']
+    base_lr = optim_g.param_groups[0]['lr']
     m = key.repeat(params.batch_size, 1)
     ori_msgs = torch.sign(m) > 0
     for it in metric_logger.log_every(range(start_iter, min(start_iter + params.eval_freq, params.steps) + 1),
                                       params.log_freq, header):
-        utils.adjust_learning_rate(G_optim, it, params.steps, params.warmup_steps, base_lr)
+        # --------------------
+        # Update discriminator
+        # --------------------
+        train_loader_iter = iter(train_loader)
+        for jt in range(params.critic_steps):
+            optim_d.zero_grad()
+
+            # train with real
+            x_real, y_real = next(train_loader_iter)
+            x_real = x_real.to(params.device)
+            real_validity = D(x_real)
+            loss_d_real = critic_loss(real_validity, torch.ones_like(real_validity))
+            loss_d_real.backward()
+
+            # train with fake
+            z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device)  # b z 1 1
+            x_fake = G(z).detach()
+            fake_validity = D(x_fake)
+            loss_d_fake = critic_loss(fake_validity, torch.zeros_like(fake_validity))
+            loss_d_fake.backward()
+
+            # dragan
+            if params.lambda_dragan:
+                alpha = torch.rand(params.batch_size, 1, 1, 1, device=params.device).expand_as(x_real)
+                x_hat = torch.tensor(
+                    alpha * x_real.data +
+                    (1 - alpha) * (x_real.data + 0.5 * x_real.data.std() * torch.rand_like(x_real)),
+                    requires_grad=True)
+                perm_validity = D(x_hat)
+                gradients = torch.autograd.grad(
+                    perm_validity, x_hat, grad_outputs=torch.ones_like(perm_validity),
+                    create_graph=True, retain_graph=True, only_inputs=True)[0]
+                gradient_penalty = params.lambda_dragan * ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+                gradient_penalty.backward()
+
+            optim_d.step()
+
+        # --------------------
+        # Update generator
+        # --------------------
+        utils.adjust_learning_rate(optim_g, it, params.steps, params.warmup_steps, base_lr)
         # random latent vector
         z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device)  # b z 1 1
         # decode latents with original and fine-tuned decoder
         x_w = G(z)  # b z 1 1 -> b c h w
-        validity_w = D(x_w) if critic_loss is not None else 0  # b z h w -> b 1
+        validity_w = D(x_w)  # b z h w -> b 1
 
         # simulated attacks
         x_r = attack_layer(x_w, None) if attack_layer is not None else x_w
@@ -319,20 +382,20 @@ def train(G_optim: torch.optim.Optimizer, D_optim: torch.optim.Optimizer, messag
 
         # compute loss
         loss_w = message_loss(m_hat, m)
-        loss_c = critic_loss(validity_w, torch.ones((params.batch_size,), device=params.device))
+        loss_c = critic_loss(validity_w, torch.ones_like(validity_w))
         loss = params.lambda_w * loss_w + params.lambda_c * loss_c
 
         # optim step
         loss.backward()
-        G_optim.step()
-        G_optim.zero_grad()
+        optim_g.step()
+        optim_g.zero_grad()
 
         # log stats
         decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
         bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
         word_accs = bit_accs == 1  # b
         log_stats = {
-            'lr': G_optim.param_groups[0]['lr'],
+            'lr': optim_g.param_groups[0]['lr'],
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_c': itemize(loss_c),

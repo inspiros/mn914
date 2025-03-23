@@ -87,6 +87,19 @@ python finetune_dcgan.py mnist_critic --num_keys 1 `
     --lambda_i 1 --lambda_w 1 --lambda_c 0.1 --lambda_d 0
 ```
 
+-- Adversarial scheme:
+```cmd
+python finetune_dcgan_adv.py mnist_adv --dataset MNIST `
+    --num_keys 1 --num_bits 32 --img_size 28 --img_channels 1 --batch_size 32 `
+    --steps 8000 --eval_steps 400 --eval_freq 800 `
+    --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
+    --discriminator_ckpt ../ckpts/dcgan_discriminator_mnist.pth `
+    --decoder_path ../ckpts/hidden_mnist.pth `
+    --attack_layer none `
+    --loss_w bce --loss_c bce `
+    --lambda_w 1 --lambda_c 1
+```
+
 ###### on CIFAR-10
 All experiments use R3GAN (a conditional GAN).
 

@@ -15,6 +15,7 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Subset
+from torchvision import datasets as tv_datasets
 from torchvision.datasets.folder import is_image_file, default_loader
 
 
@@ -103,14 +104,27 @@ def collate_fn(batch):
     return batch
 
 
-def get_dataloader(data_dir, transform, batch_size=128, num_imgs=None, shuffle=False, num_workers=4,
-                   collate_fn=collate_fn):
-    """ Get dataloader for the images in the data_dir. The data_dir must be of the form: input/0/... """
-    dataset = ImageFolder(data_dir, transform=transform)
+def get_dataloader(data_dir,
+                   transform,
+                   batch_size=128,
+                   num_imgs=None,
+                   shuffle=False,
+                   num_workers=4,
+                   collate_fn=None,
+                   dataset=None, train=True):
+    r""" Get dataloader for the images in the data_dir. The data_dir must be of the form: input/0/... """
+    if dataset is not None:
+        dataset_cls = getattr(tv_datasets, dataset)
+        if not isinstance(dataset_cls, type):
+            raise TypeError(f'dataset must be a type, got {type(dataset)}')
+        dataset = dataset_cls(root=data_dir, train=train, transform=transform, download=True)
+    else:
+        dataset = ImageFolder(data_dir, transform=transform)
     if num_imgs is not None:
         dataset = Subset(dataset, np.random.choice(len(dataset), num_imgs, replace=False))
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True,
-                      drop_last=False, collate_fn=collate_fn)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
+                             pin_memory=True, drop_last=False, collate_fn=collate_fn)
+    return data_loader
 
 
 def pil_imgs_from_folder(folder):
