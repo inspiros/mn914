@@ -295,19 +295,20 @@ def main():
 
     # optionally resume training
     to_restore = {'epoch': 1}
-    if os.path.isfile(os.path.join(params.output_dir, 'checkpoint.pth')):
+    if params.resume_from is not None:
+        utils.restart_from_checkpoint(
+            params.resume_from,
+            run_variables=to_restore,
+            encoder_decoder=encoder_decoder,
+            strict=True)
+    elif os.path.isfile(os.path.join(params.output_dir, 'checkpoint.pth')):
         utils.restart_from_checkpoint(
             os.path.join(params.output_dir, 'checkpoint.pth'),
             run_variables=to_restore,
             encoder_decoder=encoder_decoder,
-        )
-    elif params.resume_from is not None:
-        utils.restart_from_checkpoint(
-            params.resume_from,
-            encoder_decoder=encoder_decoder
-        )
-        if params.encoder_only_epochs:
-            decoder.requires_grad_(False)
+            strict=True)
+    else:
+        raise RuntimeError('No checkpoint found.')
     start_epoch = to_restore['epoch']
 
     # create output dir

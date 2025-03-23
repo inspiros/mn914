@@ -24,7 +24,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 # utils for running exp
-def restart_from_checkpoint(ckpt_path, run_variables=None, **kwargs):
+def restart_from_checkpoint(ckpt_path, run_variables=None, strict=False, **kwargs):
     r"""
     Re-start from checkpoint
     """
@@ -45,7 +45,7 @@ def restart_from_checkpoint(ckpt_path, run_variables=None, **kwargs):
                     msg = value.load_state_dict(checkpoint[key], strict=True)
                 except:
                     checkpoint[key] = {k.replace('module.', ''): v for k, v in checkpoint[key].items()}
-                    msg = value.load_state_dict(checkpoint[key], strict=False)
+                    msg = value.load_state_dict(checkpoint[key], strict=strict)
                 print('=> loaded "{}" from checkpoint "{}" with msg {}'.format(key, ckpt_path, msg))
             except TypeError:
                 try:
