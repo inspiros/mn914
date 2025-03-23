@@ -258,9 +258,8 @@ def main():
     }
     if params.img_channels == 1:
         # remove saturation and hue
-        for k in eval_attacks.keys():
-            if k.startswith('saturation') or k.startswith('hue'):
-                eval_attacks.pop(k)
+        eval_attacks = {k: v for k, v in eval_attacks.items()
+                        if not (k.startswith('saturation') or k.startswith('hue'))}
         # add morphology
         morphology_footprint = hidden_attacks.morphology.footprints.diamond(1)
         eval_attacks.update({
