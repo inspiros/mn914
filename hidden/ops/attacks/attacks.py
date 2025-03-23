@@ -14,10 +14,20 @@ __all__ = [
     'ClampPixel',
     'CenterCrop',
     'Resize',
+    'Resize2',
     'Rotate',
+    'HFlip',
+    'VFlip',
     'AdjustBrightness',
     'AdjustContrast',
+    'AdjustSaturation',
+    'AdjustHue',
+    'AdjustSharpness',
     'GaussianBlur',
+    'Invert',
+    'Posterize',
+    'Solarize',
+    'AutoContrast',
     'JPEGCompress',
     'JPEG2000Compress',
     'WEBPCompress',
@@ -94,13 +104,38 @@ class Resize(_BaseAttack):
         return F.resize(x, self.scale, self.interpolation)
 
 
-class Rotate(_BaseAttack):
-    def __init__(self, angle: float) -> None:
+class Resize2(_BaseAttack):
+    def __init__(self, scale: float,
+                 interpolation: F.InterpolationMode = F.InterpolationMode.BILINEAR) -> None:
         super().__init__()
-        self.angle = angle
+        self.scale = scale
+        self.interpolation = interpolation
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.rotate(x, self.angle)
+        return F.resize2(x, self.scale, self.interpolation)
+
+
+class Rotate(_BaseAttack):
+    def __init__(self, angle: float,
+                 interpolation: F.InterpolationMode = F.InterpolationMode.BILINEAR,
+                 fill: Optional[Union[float, List[float]]] = None) -> None:
+        super().__init__()
+        self.angle = angle
+        self.interpolation = interpolation
+        self.fill = fill
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.rotate(x, self.angle, self.interpolation, fill=self.fill)
+
+
+class HFlip(_BaseAttack):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.hflip(x)
+
+
+class VFlip(_BaseAttack):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.vflip(x)
 
 
 class AdjustBrightness(_DenormalizedAttack):
@@ -125,6 +160,51 @@ class AdjustContrast(_DenormalizedAttack):
         return F.adjust_contrast(x, self.contrast_factor, self.mean, self.std)
 
 
+class AdjustSaturation(_DenormalizedAttack):
+    def __init__(self, saturation_factor: float,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.saturation_factor = saturation_factor
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.adjust_saturation(x, self.saturation_factor, self.mean, self.std)
+
+
+class AdjustHue(_DenormalizedAttack):
+    def __init__(self, hue_factor: float,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.hue_factor = hue_factor
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.adjust_hue(x, self.hue_factor, self.mean, self.std)
+
+
+class AdjustGamma(_DenormalizedAttack):
+    def __init__(self, gamma: float, gain: float = 1,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.gamma = gamma
+        self.gain = gain
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.adjust_gamma(x, self.gamma, self.gain, self.mean, self.std)
+
+
+class AdjustSharpness(_DenormalizedAttack):
+    def __init__(self, sharpness_factor: float,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.sharpness_factor = sharpness_factor
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.adjust_sharpness(x, self.sharpness_factor, self.mean, self.std)
+
+
 class GaussianBlur(_DenormalizedAttack):
     def __init__(self, kernel_size: Union[List[int], int], sigma: Optional[Union[List[float], float]] = 1.,
                  mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
@@ -135,6 +215,38 @@ class GaussianBlur(_DenormalizedAttack):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.gaussian_blur(x, self.kernel_size, self.sigma, self.mean, self.std)
+
+
+class Invert(_DenormalizedAttack):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.invert(x, self.mean, self.std)
+
+
+class Posterize(_DenormalizedAttack):
+    def __init__(self, bits: int,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.bits = bits
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.posterize(x, self.bits, self.mean, self.std)
+
+
+class Solarize(_DenormalizedAttack):
+    def __init__(self, threshold: float,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> None:
+        super().__init__(mean, std)
+        self.threshold = threshold
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.solarize(x, self.threshold, self.mean, self.std)
+
+
+class AutoContrast(_DenormalizedAttack):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.autocontrast(x, self.mean, self.std)
 
 
 class JPEGCompress(_DenormalizedAttack):

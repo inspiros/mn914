@@ -13,7 +13,7 @@ from torchvision.utils import save_image
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hidden import models, utils
-from hidden.models import attenuations
+from hidden.models import attenuations, attack_layers
 from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics, transforms as hidden_transforms
 
 
@@ -27,8 +27,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--data_dir', type=str, default=os.path.join(project_root, 'data'))
     g.add_argument('--train_dir', type=str, default=None)
     g.add_argument('--val_dir', type=str, default=None)
-    g.add_argument('--output_dir', type=str, default='outputs_eval',
-                   help='Output directory for logs and images (Default: outputs_eval)')
+    g.add_argument('--output_dir', type=str, default='outputs',
+                   help='Output directory for logs and images (Default: outputs)')
     g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
     g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
 
@@ -59,6 +59,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
                    help='Number of blocks in the decoder (Default: 4)')
 
     g = parser.add_argument_group('Training parameters')
+    g.add_argument('--eval_freq', default=10, type=int)
+    g.add_argument('--saveckpt_freq', default=100, type=int)
+    g.add_argument('--saveimg_freq', default=10, type=int)
     g.add_argument('--resume_from', default=None, type=str,
                    help='Checkpoint path to resume from.')
     g.add_argument('--scaling_w', type=float, default=0.3,
@@ -81,7 +84,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--device', type=str, default='cuda:0', help='Device')
 
     g = parser.add_argument_group('Misc')
-    g.add_argument('--seed', default=0, type=utils.nullable(int), help='Random seed')
+    g.add_argument('--seed', default=None, type=utils.nullable(int), help='Random seed')
 
     params = parser.parse_args()
 
@@ -89,6 +92,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
         params.output_dir = os.path.join(params.output_dir, params.exp)
     if (params.data_mean is None) ^ (params.data_std is None):
         raise ValueError('Data mean and std are both required.')
+
+    if params.dist:
+        params.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Print the arguments
     if verbose:
@@ -124,9 +130,6 @@ def main():
     train_transform = tv_transforms.Compose([
         tv_transforms.Resize(params.img_size),
         tv_transforms.CenterCrop(params.img_size),
-        tv_transforms.RandomResizedCrop(params.img_size, scale=(0.5, 1.0)),
-        tv_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        tv_transforms.RandomHorizontalFlip(),
         tv_transforms.ToTensor(),
         hidden_transforms.Normalize(params.data_mean, params.data_std),
     ])
@@ -137,15 +140,10 @@ def main():
         hidden_transforms.Normalize(params.data_mean, params.data_std),
     ])
     if params.dataset is not None:
-        train_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=True,
-                                            transform=train_transform, batch_size=params.batch_size,
-                                            num_workers=params.workers, shuffle=True)
         val_loader = utils.get_dataloader(params.data_dir, dataset=params.dataset, train=False,
                                           transform=val_transform, batch_size=params.batch_size,
                                           num_workers=params.workers, shuffle=False)
     else:
-        train_loader = utils.get_dataloader(params.train_dir, transform=train_transform, batch_size=params.batch_size,
-                                            num_workers=params.workers, shuffle=True)
         val_loader = utils.get_dataloader(params.val_dir, transform=val_transform, batch_size=params.batch_size,
                                           num_workers=params.workers, shuffle=False)
 
@@ -195,7 +193,7 @@ def main():
                                        channels=params.decoder_channels,
                                        in_channels=params.img_channels)
     elif params.decoder == 'resnet':
-        decoder = models.resnet50_decoder(num_bits=params.num_bits,
+        decoder = models.resnet18_decoder(num_bits=params.num_bits,
                                           img_channels=params.img_channels,
                                           low_resolution=True)
     else:
@@ -210,10 +208,78 @@ def main():
     else:
         attenuation = None
 
+    # attacks
+    eval_attacks = {
+        'none': hidden_attacks.Identity(),
+        'crop_08': hidden_attacks.CenterCrop(0.8),
+        'crop_05': hidden_attacks.CenterCrop(0.5),
+        'resize_08': hidden_attacks.Resize(0.8),
+        'resize_05': hidden_attacks.Resize(0.5),
+        'rot_r25': hidden_attacks.Rotate(25, fill=-1),
+        'rot_l25': hidden_attacks.Rotate(-25, fill=-1),
+        'rot_r': hidden_attacks.Rotate(90),
+        'rot_l': hidden_attacks.Rotate(-90),
+        'hflip': hidden_attacks.HFlip(),
+        'vflip': hidden_attacks.VFlip(),
+        'brightness_d': hidden_attacks.AdjustBrightness(
+            0.75, mean=params.data_mean, std=params.data_std).to(params.device),
+        'brightness_i': hidden_attacks.AdjustBrightness(
+            1.25, mean=params.data_mean, std=params.data_std).to(params.device),
+        'contrast_d': hidden_attacks.AdjustContrast(
+            0.75, mean=params.data_mean, std=params.data_std).to(params.device),
+        'contrast_i': hidden_attacks.AdjustContrast(
+            1.25, mean=params.data_mean, std=params.data_std).to(params.device),
+        'saturation_d': hidden_attacks.AdjustSaturation(
+            0.75, mean=params.data_mean, std=params.data_std).to(params.device),
+        'saturation_i': hidden_attacks.AdjustSaturation(
+            1.25, mean=params.data_mean, std=params.data_std).to(params.device),
+        'hue_d': hidden_attacks.AdjustHue(
+            0.9, mean=params.data_mean, std=params.data_std).to(params.device),
+        'hue_i': hidden_attacks.AdjustHue(
+            1.1, mean=params.data_mean, std=params.data_std).to(params.device),
+        'sharpness_d': hidden_attacks.AdjustSharpness(
+            0.75, mean=params.data_mean, std=params.data_std).to(params.device),
+        'sharpness_i': hidden_attacks.AdjustSharpness(
+            1.25, mean=params.data_mean, std=params.data_std).to(params.device),
+        'blur': hidden_attacks.GaussianBlur(
+            kernel_size=5, sigma=0.5, mean=params.data_mean, std=params.data_std).to(params.device),
+        'posterize_7': hidden_attacks.Posterize(7),
+        'posterize_6': hidden_attacks.Posterize(6),
+        'posterize_5': hidden_attacks.Posterize(5),
+        'autocontrast': hidden_attacks.AutoContrast(mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_80': hidden_attacks.JPEGCompress(
+            80, mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg_50': hidden_attacks.JPEGCompress(
+            50, mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg2000_80': hidden_attacks.JPEG2000Compress(
+            80, mean=params.data_mean, std=params.data_std).to(params.device),
+        'jpeg2000_50': hidden_attacks.JPEG2000Compress(
+            50, mean=params.data_mean, std=params.data_std).to(params.device),
+        'webp_80': hidden_attacks.WEBPCompress(
+            80, mean=params.data_mean, std=params.data_std).to(params.device),
+        'webp_50': hidden_attacks.WEBPCompress(
+            50, mean=params.data_mean, std=params.data_std).to(params.device),
+    }
+    if params.img_channels == 1:
+        morphology_footprint = hidden_attacks.morphology.footprints.diamond(1)
+        eval_attacks.update({
+            'erosion': hidden_attacks.morphology.Erosion(
+                morphology_footprint, mean=params.data_mean, std=params.data_std).to(params.device),
+            'dilation': hidden_attacks.morphology.Dilation(
+                morphology_footprint, mean=params.data_mean, std=params.data_std).to(params.device),
+            'opening': hidden_attacks.morphology.Opening(
+                morphology_footprint, mean=params.data_mean, std=params.data_std).to(params.device),
+            'closing': hidden_attacks.morphology.Closing(
+                morphology_footprint, mean=params.data_mean, std=params.data_std).to(params.device),
+        })
+    eval_attacks = {k: attack_layers.wrap_attack(v, False) for k, v in eval_attacks.items()}
+
     # Construct metrics
     metrics = {
         'psnr': hidden_metrics.PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
         'ssim': hidden_metrics.SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
+        'dssim': hidden_metrics.DSSIM(
+            use_gpu='cuda' in params.device, colorspace='Lab' if params.img_channels == 1 else 'RGB').to(params.device),
     }
     if params.img_size >= 160:
         metrics.update({
@@ -238,17 +304,39 @@ def main():
     encoder_decoder = encoder_decoder.to(params.device)
 
     # optionally resume training
-    utils.restart_from_checkpoint(
-        params.resume_from,
-        encoder_decoder=encoder_decoder
-    )
-    # create output dir
-    os.makedirs(params.output_dir, exist_ok=True)
+    to_restore = {'epoch': 1}
+    if os.path.isfile(os.path.join(params.output_dir, 'checkpoint.pth')):
+        utils.restart_from_checkpoint(
+            os.path.join(params.output_dir, 'checkpoint.pth'),
+            run_variables=to_restore,
+            encoder_decoder=encoder_decoder,
+        )
+    elif params.resume_from is not None:
+        utils.restart_from_checkpoint(
+            params.resume_from,
+            encoder_decoder=encoder_decoder
+        )
+        if params.encoder_only_epochs:
+            decoder.requires_grad_(False)
+    start_epoch = to_restore['epoch']
 
-    # eval
+    # create output dir
+    params.output_dir = os.path.join(params.output_dir, 'eval')
+    os.makedirs(params.output_dir, exist_ok=True)
     print('evaluating...')
-    val_stats = eval_one_epoch(encoder_decoder.encoder_wrapper(), train_loader, metrics, params)
-    log_stats = {**{f'val_{k}': v for k, v in val_stats.items()}}
+    val_stats = eval_one_epoch(encoder_decoder, val_loader,
+                               eval_attacks, metrics, start_epoch, params)
+    log_stats = {'epoch': start_epoch, **{f'val_{k}': v for k, v in val_stats.items()}}
+    with (Path(params.output_dir) / 'log.csv').open('a') as f:
+        for i, k in enumerate(log_stats.keys()):
+            f.write(k)
+            if i != len(log_stats) - 1:
+                f.write(',')
+        f.write('\n')
+        for i, v in enumerate(log_stats.values()):
+            f.write(str(v))
+            if i != len(log_stats) - 1:
+                f.write(',')
     with (Path(params.output_dir) / 'log.txt').open('a') as f:
         f.write(json.dumps(log_stats) + '\n')
 
@@ -261,12 +349,12 @@ def itemize(tensor):
 
 # noinspection DuplicatedCode
 @torch.no_grad()
-def eval_one_epoch(encoder: models.EncoderWithJND, loader, metrics, params):
+def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, eval_attacks, metrics, epoch, params):
     r"""
     One epoch of eval.
     """
-    header = f'[Eval]'
-    encoder.eval()
+    header = f'[Epoch {epoch}/{params.epochs}]'
+    encoder_decoder.eval()
     metric_logger = utils.MetricLogger()
 
     # assuring same keys generated
@@ -278,20 +366,33 @@ def eval_one_epoch(encoder: models.EncoderWithJND, loader, metrics, params):
                           generator=generator)  # b k [0 1]
         m_normalized = 2 * m - 1  # b k [-1 1]
 
-        x_w = encoder(x0, m_normalized)
+        m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized)
 
         # stats
+        ori_msgs = torch.sign(m) > 0
+        decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
+        bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
+        word_accs = bit_accs == 1  # b
         log_stats = {
+            'bit_acc': torch.mean(bit_accs).item(),
+            'word_acc': torch.mean(word_accs.float()).item(),
             **{metric_name: metric(x_w, x0).mean().item() for metric_name, metric in metrics.items()},
         }
+
+        for name, attack in eval_attacks.items():
+            m_hat, (x_w, x_r) = encoder_decoder(x0, m_normalized, eval_attack=attack)
+            decoded_msgs = torch.sign(m_hat) > 0  # b k -> b k
+            bit_accs = torch.sum(ori_msgs == decoded_msgs, dim=-1) / m.size(1)  # b k -> b
+            log_stats[f'bit_acc_{name}'] = torch.mean(bit_accs).item()
+
         for name, loss in log_stats.items():
             metric_logger.update(**{name: loss})
 
-        if it < 10:
+        if it == 0:
             save_image(params.denormalize(x0),
-                       os.path.join(params.imgs_dir, f'{it:03d}_val_x0.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
-                       os.path.join(params.imgs_dir, f'{it:03d}_val_xw.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
 
     print(f'⭕ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}

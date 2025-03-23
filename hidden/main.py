@@ -1,9 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import argparse
 import datetime
 import json
@@ -76,8 +70,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--saveimg_freq', default=10, type=int)
     g.add_argument('--resume_from', default=None, type=str,
                    help='Checkpoint path to resume from.')
-    g.add_argument('--scaling_w', type=float, default=1.0,
-                   help='Scaling of the watermark signal. (Default: 1.0)')
+    g.add_argument('--scaling_w', type=float, default=0.3,
+                   help='Scaling of the watermark signal. (Default: 0.3)')
     g.add_argument('--scaling_i', type=float, default=1.0,
                    help='Scaling of the original image. (Default: 1.0)')
 
@@ -276,7 +270,7 @@ def main():
                                        channels=params.decoder_channels,
                                        in_channels=params.img_channels)
     elif params.decoder == 'resnet':
-        decoder = models.resnet50_decoder(num_bits=params.num_bits,
+        decoder = models.resnet18_decoder(num_bits=params.num_bits,
                                           img_channels=params.img_channels,
                                           low_resolution=True)
     else:
@@ -434,7 +428,7 @@ def main():
         params.output_dir = os.path.join(params.output_dir, 'eval')
         os.makedirs(params.output_dir, exist_ok=True)
         print('evaluating...')
-        val_stats = eval_one_epoch(encoder_decoder, train_loader,
+        val_stats = eval_one_epoch(encoder_decoder, val_loader,
                                    message_loss, image_loss, perceptual_loss,
                                    eval_attacks, metrics, start_epoch, params)
         log_stats = {'epoch': start_epoch, **{f'val_{k}': v for k, v in val_stats.items()}}

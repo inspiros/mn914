@@ -6,9 +6,10 @@ import torch.nn as nn
 import lpips
 
 from . import functional as F
+from ..attacks import functional as attacks_F
 
 __all__ = [
-    'PSNR', 'DataPSNR', 'SSIM', 'DataSSIM', 'MS_SSIM', 'DataMS_SSIM', 'LPIPS',
+    'PSNR', 'DataPSNR', 'SSIM', 'DataSSIM', 'MS_SSIM', 'DataMS_SSIM', 'LPIPS', 'DSSIM',
 ]
 
 
@@ -84,3 +85,12 @@ class LPIPS(_BaseMetric):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return self.lpips(x, y)
+
+
+class DSSIM(_BaseMetric):
+    def __init__(self, use_gpu: bool = True, colorspace: str = 'Lab') -> None:
+        super().__init__()
+        self.dssim = lpips.DSSIM(use_gpu, colorspace)
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self.dssim(x, y)

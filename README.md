@@ -1,7 +1,8 @@
-MN914 Joint Project
+MN914 Joint Project - Towards Semantic Signature
 ------
 
 This repo is intended for storing our code for the joint project.
+It tries to apply Stable Signature for GAN.
 
 ## Setup
 

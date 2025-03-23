@@ -1,6 +1,6 @@
-import math
 from typing import List, Tuple, Optional, Union
 
+import numpy as np
 import torch
 from torchvision.transforms import functional as F_tv
 from torchvision.transforms.functional import InterpolationMode
@@ -12,14 +12,27 @@ __all__ = [
     'normalize_img',
     'denormalize_img',
     'to_tensor_img',
+    'to_numpy_img',
+    'from_numpy_img',
     'round_pixel',
     'clamp_pixel',
     'center_crop',
     'resize',
+    'resize2',
     'rotate',
+    'hflip',
+    'vflip',
     'adjust_brightness',
     'adjust_contrast',
+    'adjust_saturation',
+    'adjust_hue',
+    'adjust_gamma',
+    'adjust_sharpness',
     'gaussian_blur',
+    'invert',
+    'posterize',
+    'solarize',
+    'autocontrast',
     'jpeg_compress',
     'jpeg2000_compress',
     'webp_compress',
@@ -58,11 +71,29 @@ def to_tensor_img(x: torch.Tensor,
                   mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
                   std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Convert tensor to Tensor Image """
-    if (mean is None) ^ (std is None):
-        raise ValueError('Both mean and std must be specified')
     x_pixel = 255 * denormalize_img(x, mean=mean, std=std)
     y_pixel = torch.round(x_pixel).clamp(0, 255)
     return y_pixel
+
+
+def to_numpy_img(x: torch.Tensor,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> np.ndarray:
+    r""" Convert tensor to Tensor Image """
+    x_pixel = 255 * denormalize_img(x, mean=mean, std=std)
+    y_pixel = torch.round(x_pixel).clamp(0, 255)
+    return y_pixel.detach().cpu().to(torch.uint8).numpy()
+
+
+def from_numpy_img(x_np: np.ndarray,
+                   mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                   std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                   dtype=torch.float32, device=None) -> torch.Tensor:
+    r""" Convert tensor to Tensor Image """
+    if device is None and torch.is_tensor(mean):
+        device = mean.device
+    x_pixel = torch.from_numpy(x_np).to(dtype=dtype, device=device) / 255.
+    return normalize_img(x_pixel, mean=mean, std=std)
 
 
 def round_pixel(x: torch.Tensor,
@@ -124,33 +155,66 @@ def center_crop(x: torch.Tensor, scale: float) -> torch.Tensor:
         x: Image tensor
         scale: target area scale
     """
-    scale = math.sqrt(scale)
-    output_size = [int(s * scale) for s in x.shape[-2:]][::-1]
+    output_size = [int(s * scale) for s in x.shape[:1:-1]]
     return F_tv.center_crop(x, output_size)
 
 
 def resize(x: torch.Tensor, scale: float,
            interpolation: InterpolationMode = InterpolationMode.BILINEAR) -> torch.Tensor:
-    r""" Perform center crop such that the target area of the crop is at a given scale
+    r""" Resize image given a scale factor
 
     Args:
         x: Image tensor
         scale: target area scale
         interpolation: Interpolation mode
     """
-    scale = math.sqrt(scale)
-    new_edges_size = [int(s * scale) for s in x.shape[-2:]][::-1]
+    new_edges_size = [int(s * scale) for s in x.shape[:1:-1]]
     return F_tv.resize(x, new_edges_size, interpolation=interpolation)
 
 
-def rotate(x: torch.Tensor, angle: float) -> torch.Tensor:
+def resize2(x: torch.Tensor, scale: float,
+            interpolation: InterpolationMode = InterpolationMode.BILINEAR) -> torch.Tensor:
+    r""" Resize image given a scale factor, then resize it back to original size
+
+    Args:
+        x: Image tensor
+        scale: target area scale
+        interpolation: Interpolation mode
+    """
+    return F_tv.resize(resize(x, scale, interpolation=interpolation),
+                       [int(s) for s in x.shape[:1:-1]], interpolation=interpolation)
+
+
+def rotate(x: torch.Tensor, angle: float,
+           interpolation: InterpolationMode = InterpolationMode.BILINEAR,
+           fill: Optional[Union[float, List[float]]] = None) -> torch.Tensor:
     r""" Rotate image by angle
 
     Args:
         x: Image tensor
         angle: angle in degrees
+        interpolation: interpolation mode
+        fill: fill value for area outside the transformed image
     """
-    return F_tv.rotate(x, angle)
+    return F_tv.rotate(x, angle, interpolation, fill=fill)
+
+
+def hflip(x: torch.Tensor) -> torch.Tensor:
+    r""" Flip image horizontally
+
+    Args:
+        x: Image tensor
+    """
+    return F_tv.hflip(x)
+
+
+def vflip(x: torch.Tensor) -> torch.Tensor:
+    r""" Flip image horizontally
+
+    Args:
+        x: Image tensor
+    """
+    return F_tv.vflip(x)
 
 
 def adjust_brightness(x: torch.Tensor,
@@ -187,6 +251,76 @@ def adjust_contrast(x: torch.Tensor,
     return normalize_img(y_pixel, mean=mean, std=std)
 
 
+def adjust_saturation(x: torch.Tensor,
+                      saturation_factor: float,
+                      mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                      std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Adjust saturation of an image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        saturation_factor: saturation factor
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.adjust_saturation(x_pixel, saturation_factor)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def adjust_hue(x: torch.Tensor,
+               hue_factor: float,
+               mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+               std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Adjust hue of an image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        hue_factor: hue factor
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.adjust_hue(x_pixel, hue_factor)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def adjust_gamma(x: torch.Tensor,
+                 gamma: float,
+                 gain: float = 1,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Adjust gamma of an image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        gamma: Non-negative real number
+        gain: The const multiplier
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.adjust_gamma(x_pixel, gamma, gain)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def adjust_sharpness(x: torch.Tensor,
+                     sharpness_factor: float,
+                     mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                     std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Adjust sharpness of an image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        sharpness_factor: sharpness factor
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.adjust_sharpness(x_pixel, sharpness_factor)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
 def gaussian_blur(x: torch.Tensor, kernel_size: Union[List[int], int], sigma: Optional[Union[List[float], float]] = 1.,
                   mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
                   std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
@@ -201,6 +335,66 @@ def gaussian_blur(x: torch.Tensor, kernel_size: Union[List[int], int], sigma: Op
     """
     x_pixel = denormalize_img(x, mean=mean, std=std)
     y_pixel = F_tv.gaussian_blur(x_pixel, kernel_size=kernel_size, sigma=sigma)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def invert(x: torch.Tensor,
+           mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+           std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Invert color of an image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.invert(x_pixel)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def posterize(x: torch.Tensor, bits: int,
+              mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+              std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Posterize an image by reducing the number of bits for each color channel
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.posterize(x_pixel.mul_(255).to(torch.uint8), bits).to(x.dtype).div_(255)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def solarize(x: torch.Tensor, threshold: float,
+             mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+             std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Solarize an RGB/grayscale image by inverting all pixel values above a threshold
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.solarize(x_pixel, threshold)
+    return normalize_img(y_pixel, mean=mean, std=std)
+
+
+def autocontrast(x: torch.Tensor,
+                 mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                 std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+    r""" Maximize contrast of an image
+
+    Args:
+        x: Image tensor with values between [-1,1]
+        mean: Dataset mean
+        std: Dataset std
+    """
+    x_pixel = denormalize_img(x, mean=mean, std=std)
+    y_pixel = F_tv.autocontrast(x_pixel)
     return normalize_img(y_pixel, mean=mean, std=std)
 
 
@@ -265,7 +459,7 @@ def jpeg2000_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
         mean: Dataset mean
         std: Dataset std
     """
-    return compress(x, format='JPEG 2000', quality=quality, mode=mode, mean=mean, std=std)
+    return compress(x, format='JPEG2000', quality=quality, mode=mode, mean=mean, std=std)
 
 
 @torch.no_grad()
@@ -321,8 +515,8 @@ def diff_jpeg_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None
 
 
 def diff_jpeg2000_compress(x: torch.Tensor, quality: int, mode: Optional[str] = None,
-                       mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
-                       std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
+                           mean: Optional[Union[Tuple[float, ...], torch.Tensor]] = None,
+                           std: Optional[Union[Tuple[float, ...], torch.Tensor]] = None) -> torch.Tensor:
     r""" Apply differentiable JPEG 2000 compression to image
 
     Args:

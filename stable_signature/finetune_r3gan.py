@@ -4,7 +4,7 @@ import os
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Dict
 
 import numpy as np
 import torch
@@ -80,11 +80,15 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g.add_argument('--loss_i', type=str, default='watson-vgg',
                    help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
+    g.add_argument('--loss_c', type=str, default='none',
+                   help='Type of loss for the critic loss. Can be bce')
     g.add_argument('--loss_w', type=str, default='bce',
                    help='Type of loss for the watermark loss. Can be mse or bce')
     g.add_argument('--loss_d', type=str, default='none',
                    help='Type of loss for the distillation loss. Can be kl, mse')
     g.add_argument('--lambda_i', type=float, default=1.0,
+                   help='Weight of the image loss in the total loss')
+    g.add_argument('--lambda_c', type=float, default=1.0,
                    help='Weight of the image loss in the total loss')
     g.add_argument('--lambda_w', type=float, default=1.0,
                    help='Weight of the watermark loss in the total loss')
@@ -130,6 +134,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     if params.attack_layer is not None:
         if params.attack_layer.lower() == 'none':
             params.attack_layer = None
+    if params.loss_c is not None:
+        if params.loss_c.lower() == 'none':
+            params.loss_c = None
     if params.loss_d is not None:
         if params.loss_d.lower() == 'none':
             params.loss_d = None
@@ -164,9 +171,17 @@ def main():
     os.makedirs(params.imgs_dir, exist_ok=True)
 
     # Loads LDM auto-encoder models
-    print(f'>>> Building Generator...')
-    G0 = r3gan.get_generator(params.generator_ckpt).to(params.device)
-    G0.eval()
+    print(f'>>> Building Generator and Discriminator...')
+    if params.loss_c is not None:
+        G0, D = r3gan.get_both(params.generator_ckpt)
+        G0.to(params.device)
+        D.to(params.device)
+        G0.eval()
+        D.eval()
+    else:
+        G0 = r3gan.get_generator(params.generator_ckpt).to(params.device)
+        G0.eval()
+        D = None
 
     # Loads attack layer
     if params.attack_layer is None:
@@ -232,6 +247,11 @@ def main():
         image_loss = lambda x_w, x0: loss_perceptual((1 + x_w) / 2.0, (1 + x0) / 2.0) / x_w.size(0)
     else:
         raise ValueError(f'Unknown image loss: {params.loss_i}')
+
+    if params.loss_c == 'bce':
+        critic_loss = nn.BCEWithLogitsLoss()
+    else:
+        critic_loss = None
 
     if params.loss_d is None:
         distillation_loss = None
@@ -301,9 +321,11 @@ def main():
         print(f'>>> Training...')
         start_iter = 0
         while start_iter < params.steps:
-            train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
-                                G0, G, attack_layer, msg_decoder, img_transform, key, metrics, start_iter + 1, params)
-            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, start_iter + 1, params)
+            train_stats = train(optimizer, message_loss, image_loss, critic_loss, distillation_loss,
+                                G0, G, D, attack_layer, msg_decoder, img_transform, key,
+                                metrics, start_iter + 1, params)
+            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks,
+                            metrics, start_iter + 1, params)
             start_iter = min(start_iter + params.eval_freq, params.steps)
             log_stats = {'it': start_iter,
                          **{f'train_{k}': v for k, v in train_stats.items()},
@@ -328,8 +350,8 @@ def itemize(tensor):
     return tensor
 
 
-def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
-          G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
+def train(optimizer: torch.optim.Optimizer, message_loss, image_loss, critic_loss, distillation_loss,
+          G0: nn.Module, G: nn.Module, D: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, metrics: Dict, start_iter: int, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger()
@@ -348,6 +370,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # decode latents with original and fine-tuned decoder
         x0 = G0(z, label).float()  # b z -> b c h w
         x_w = G(z, label).float()  # b z -> b c h w
+        validity_w = D(x_w, label).float() if critic_loss is not None else 0  # b z -> b 1
 
         # simulated attacks
         x_r = attack_layer(x_w, x0) if attack_layer is not None else x_w
@@ -357,8 +380,10 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # compute loss
         loss_w = message_loss(m_hat, m)
         loss_i = image_loss(x_w, x0)
+        loss_c = critic_loss(validity_w, torch.ones((params.batch_size,), device=params.device)) \
+            if critic_loss is not None else 0
         loss_d = distillation_loss(x_w, x0) if distillation_loss is not None else 0
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_d * loss_d
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_c * loss_c + params.lambda_d * loss_d
 
         # optim step
         loss.backward()

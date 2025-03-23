@@ -162,7 +162,7 @@ class HiddenAttackLayer(_BaseDenormalizedAttackLayer):
         if p_jpeg > 0:
             augmentations += [
                 random_attacks.RandomDiffJPEG(quality=(75, 100), mean=mean, std=std, p=1),
-            ]
+            ] * 3  # TODO: this is a workaround to improve jpeg robustness
         if p_jpeg2000 > 0:
             augmentations += [
                 random_attacks.RandomDiffJPEG2000(quality=(25, 100), mean=mean, std=std, p=1),

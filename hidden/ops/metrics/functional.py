@@ -4,7 +4,7 @@ from typing import Optional, Union, Tuple, List
 import pytorch_msssim
 import torch
 
-from ..attacks import functional as F
+from ..attacks import functional as attacks_F
 
 __all__ = [
     'psnr',
@@ -29,8 +29,8 @@ def psnr(x: torch.Tensor, y: torch.Tensor,
         mean: Mean of the dataset.
         std: Standard deviation of the dataset.
     """
-    x_pixels = F.to_tensor_img(x, mean, std)
-    y_pixels = F.to_tensor_img(y, mean, std)
+    x_pixels = attacks_F.to_tensor_img(x, mean, std)
+    y_pixels = attacks_F.to_tensor_img(y, mean, std)
     delta = x_pixels - y_pixels
     return 20 * math.log10(255) - 10 * torch.log10(torch.mean(delta ** 2, dim=(1, 2, 3)))
 
@@ -74,8 +74,8 @@ def ssim(x: torch.Tensor, y: torch.Tensor,
         mean: Mean of the dataset.
         std: Standard deviation of the dataset.
     """
-    x_pixels = F.to_tensor_img(x, mean, std)
-    y_pixels = F.to_tensor_img(y, mean, std)
+    x_pixels = attacks_F.to_tensor_img(x, mean, std)
+    y_pixels = attacks_F.to_tensor_img(y, mean, std)
     return pytorch_msssim.ssim(
         x_pixels, y_pixels, data_range=255, win_size=win_size, win_sigma=win_sigma, K=K)
 
@@ -99,8 +99,8 @@ def data_ssim(x: torch.Tensor, y: torch.Tensor,
         mean: Mean of the dataset.
         std: Standard deviation of the dataset.
     """
-    x_pixels = F.denormalize_img(x, mean, std)
-    y_pixels = F.denormalize_img(y, mean, std)
+    x_pixels = attacks_F.denormalize_img(x, mean, std)
+    y_pixels = attacks_F.denormalize_img(y, mean, std)
     return pytorch_msssim.ssim(
         x_pixels, y_pixels, data_range=1, win_size=win_size, win_sigma=win_sigma, K=K)
 
@@ -126,8 +126,8 @@ def ms_ssim(x: torch.Tensor, y: torch.Tensor,
         mean: Mean of the dataset.
         std: Standard deviation of the dataset.
     """
-    x_pixels = F.to_tensor_img(x, mean, std)
-    y_pixels = F.to_tensor_img(y, mean, std)
+    x_pixels = attacks_F.to_tensor_img(x, mean, std)
+    y_pixels = attacks_F.to_tensor_img(y, mean, std)
     return pytorch_msssim.ms_ssim(
         x_pixels, y_pixels, data_range=255, win_size=win_size, win_sigma=win_sigma, weights=weights, K=K)
 
@@ -153,7 +153,7 @@ def data_ms_ssim(x: torch.Tensor, y: torch.Tensor,
         mean: Mean of the dataset.
         std: Standard deviation of the dataset.
     """
-    x_pixels = F.denormalize_img(x, mean, std)
-    y_pixels = F.denormalize_img(y, mean, std)
+    x_pixels = attacks_F.denormalize_img(x, mean, std)
+    y_pixels = attacks_F.denormalize_img(y, mean, std)
     return pytorch_msssim.ms_ssim(
         x_pixels, y_pixels, data_range=1, win_size=win_size, win_sigma=win_sigma, weights=weights, K=K)
