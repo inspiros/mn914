@@ -324,9 +324,9 @@ def main():
     params.output_dir = os.path.join(params.output_dir, 'eval')
     os.makedirs(params.output_dir, exist_ok=True)
     print('evaluating...')
-    val_stats = eval_one_epoch(encoder_decoder, val_loader,
-                               eval_attacks, metrics, start_epoch, params)
+    val_stats = eval_one_epoch(encoder_decoder, val_loader, eval_attacks, metrics, params)
     log_stats = {'epoch': start_epoch, **{f'val_{k}': v for k, v in val_stats.items()}}
+    # save
     with (Path(params.output_dir) / 'log.csv').open('a') as f:
         for i, k in enumerate(log_stats.keys()):
             f.write(k)
@@ -341,19 +341,13 @@ def main():
         f.write(json.dumps(log_stats) + '\n')
 
 
-def itemize(tensor):
-    if torch.is_tensor(tensor) or isinstance(tensor, np.ndarray):
-        return tensor.item()
-    return tensor
-
-
 # noinspection DuplicatedCode
 @torch.no_grad()
-def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, eval_attacks, metrics, epoch, params):
+def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, eval_attacks, metrics, params):
     r"""
     One epoch of eval.
     """
-    header = f'[Epoch {epoch}/{params.epochs}]'
+    header = '[Eval]'
     encoder_decoder.eval()
     metric_logger = utils.MetricLogger()
 
@@ -390,9 +384,9 @@ def eval_one_epoch(encoder_decoder: models.EncoderDecoder, loader, eval_attacks,
 
         if it == 0:
             save_image(params.denormalize(x0),
-                       os.path.join(params.imgs_dir, f'{epoch:03d}_val_x0.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{it:03d}_val_x0.png'), nrow=8)
             save_image(params.denormalize(x_w),
-                       os.path.join(params.imgs_dir, f'{epoch:03d}_val_xw.png'), nrow=8)
+                       os.path.join(params.imgs_dir, f'{it:03d}_val_xw.png'), nrow=8)
 
     print(f'⭕ {header}', metric_logger, end='\n\n')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
