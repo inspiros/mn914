@@ -84,7 +84,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--device', type=str, default='cuda:0', help='Device')
 
     g = parser.add_argument_group('Misc')
-    g.add_argument('--seed', default=None, type=utils.nullable(int), help='Random seed')
+    g.add_argument('--seed', default=0, type=int, help='Random seed')
 
     params = parser.parse_args()
 
