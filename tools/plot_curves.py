@@ -53,11 +53,11 @@ class MetricAggregator:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    project_root = os.path.dirname(__file__)
-    parser.add_argument('exp', nargs='?', default=None,
-                        help='experiment name')
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    parser.add_argument('exp', nargs='?', default=None, help='experiment name')
     parser.add_argument('--output_dir', type=str, default=os.path.join(project_root, 'outputs'))
-    parser.add_argument('--cmap', type=str, default='tab10')
+    parser.add_argument('--cmap', type=str, default=None)
+    parser.add_argument('--save_tex', action='store_true', default=False)
 
     return parser.parse_args()
 
@@ -80,7 +80,7 @@ def main():
                 break
             m.update(json.loads(line))
 
-    cmap = plt.get_cmap(args.cmap)
+    cmap = plt.get_cmap(args.cmap) if args.cmap is not None else lambda *args, **kwargs: None
     parts = ['train', 'val', 'test']
     os.makedirs(fig_save_dir, exist_ok=True)
     for metric in m.metrics:
@@ -112,7 +112,8 @@ def main():
 
         fig.tight_layout()
         fig.savefig(os.path.join(fig_save_dir, metric + '.png'), transparent=True)
-        tikzplotlib.save(os.path.join(fig_save_dir, metric + '.tex'))
+        if args.save_tex:
+            tikzplotlib.save(os.path.join(fig_save_dir, metric + '.tex'))
         plt.close(fig)
 
 

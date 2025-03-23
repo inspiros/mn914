@@ -4,7 +4,7 @@ import os
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Dict
 
 import numpy as np
 import torch
@@ -30,8 +30,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g = parser.add_argument_group('Data parameters')
     g.add_argument('exp', type=str, nargs='?', default=None, help='Experiment name')
-    g.add_argument('--dataset', type=str, default=None)
-    g.add_argument('--data_dir', type=str, default=os.path.join(project_root, 'data'))
     g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
     g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
 
@@ -84,11 +82,15 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g.add_argument('--loss_i', type=str, default='watson-vgg',
                    help='Type of loss for the image loss. Can be watson-vgg, mse, watson-dft, etc.')
+    g.add_argument('--loss_c', type=str, default='none',
+                   help='Type of loss for the critic loss. Can be bce')
     g.add_argument('--loss_w', type=str, default='bce',
                    help='Type of loss for the watermark loss. Can be mse or bce')
     g.add_argument('--loss_d', type=str, default='none',
                    help='Type of loss for the distillation loss. Can be kl, mse')
     g.add_argument('--lambda_i', type=float, default=1.0,
+                   help='Weight of the image loss in the total loss')
+    g.add_argument('--lambda_c', type=float, default=1.0,
                    help='Weight of the image loss in the total loss')
     g.add_argument('--lambda_w', type=float, default=1.0,
                    help='Weight of the watermark loss in the total loss')
@@ -134,17 +136,18 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     if params.attack_layer is not None:
         if params.attack_layer.lower() == 'none':
             params.attack_layer = None
+    if params.loss_c is not None:
+        if params.loss_c.lower() == 'none':
+            params.loss_c = None
     if params.loss_d is not None:
         if params.loss_d.lower() == 'none':
             params.loss_d = None
 
     # Print the arguments
     if verbose:
-        print('__git__:{}'.format(utils.get_sha()))
-        print('__log__:{}'.format(json.dumps(vars(params))))
+        print(params)
 
     params.device = torch.device(params.device) if torch.cuda.is_available() else torch.device('cpu')
-
     return params
 
 
@@ -169,9 +172,15 @@ def main():
 
     # Loads LDM auto-encoder models
     print(f'>>> Building Generator...')
-    G0 = dcgan.get_generator(params.dataset, params.img_channels, params.z_dim).to(params.device)
+    G0 = dcgan.Generator(params.img_channels, params.z_dim).to(params.device)
     G0.load_state_dict(torch.load(params.generator_ckpt, weights_only=False, map_location=params.device))
     G0.eval()
+    if params.loss_c is not None:
+        D = dcgan.Discriminator(params.img_channels).to(params.device)
+        D.load_state_dict(torch.load(params.discriminator_ckpt, weights_only=False, map_location=params.device))
+        D.eval()
+    else:
+        D = None
 
     # Loads attack layer
     if params.attack_layer is None:
@@ -181,7 +190,7 @@ def main():
             params.img_size,
             p_flip=params.p_flip,
             p_drop=params.p_drop,
-            p_color_jitter=params.p_color_jitter,
+            p_color_jitter=params.p_color_jitter if params.img_channels == 3 else 0,
             p_crop=params.p_crop,
             p_resize=params.p_resize,
             p_blur=params.p_blur,
@@ -240,6 +249,11 @@ def main():
     else:
         raise ValueError(f'Unknown image loss: {params.loss_i}')
 
+    if params.loss_c == 'bce':
+        critic_loss = nn.BCEWithLogitsLoss()
+    else:
+        critic_loss = None
+
     if params.loss_d is None:
         distillation_loss = None
     else:
@@ -257,20 +271,16 @@ def main():
     # attacks
     eval_attacks = {
         'none': hidden_attacks.Identity(),
-        'crop_03': hidden_attacks.CenterCrop(0.3),
+        'crop_08': hidden_attacks.CenterCrop(0.8),
         'crop_05': hidden_attacks.CenterCrop(0.5),
+        'resize_08': hidden_attacks.Resize2(0.8),
+        'resize_05': hidden_attacks.Resize2(0.5),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
-        'resize_03': hidden_attacks.Resize(0.3),
-        'resize_07': hidden_attacks.Resize(0.7),
         'brightness_1p5': hidden_attacks.AdjustBrightness(
             1.5, mean=params.data_mean, std=params.data_std).to(params.device),
-        'brightness_2': hidden_attacks.AdjustBrightness(
-            2, mean=params.data_mean, std=params.data_std).to(params.device),
-        'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=0.5,
-                                            mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_90': hidden_attacks.JPEGCompress(
-            90, mean=params.data_mean, std=params.data_std).to(params.device),
+        'blur': hidden_attacks.GaussianBlur(
+            kernel_size=5, sigma=0.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'jpeg_80': hidden_attacks.JPEGCompress(
             80, mean=params.data_mean, std=params.data_std).to(params.device),
     }
@@ -309,9 +319,11 @@ def main():
         print(f'>>> Training...')
         start_iter = 0
         while start_iter < params.steps:
-            train_stats = train(optimizer, message_loss, image_loss, distillation_loss,
-                                G0, G, attack_layer, msg_decoder, img_transform, key, metrics, start_iter + 1, params)
-            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks, metrics, start_iter + 1, params)
+            train_stats = train(optimizer, message_loss, image_loss, critic_loss, distillation_loss,
+                                G0, G, D, attack_layer, msg_decoder, img_transform, key,
+                                metrics, start_iter + 1, params)
+            val_stats = val(G0, G, msg_decoder, img_transform, key, eval_attacks,
+                            metrics, start_iter + 1, params)
             start_iter = min(start_iter + params.eval_freq, params.steps)
             log_stats = {'it': start_iter,
                          **{f'train_{k}': v for k, v in train_stats.items()},
@@ -336,8 +348,8 @@ def itemize(tensor):
     return tensor
 
 
-def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: Callable, distillation_loss: Callable,
-          G0: nn.Module, G: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
+def train(optimizer: torch.optim.Optimizer, message_loss, image_loss, critic_loss, distillation_loss,
+          G0: nn.Module, G: nn.Module, D: nn.Module, attack_layer: nn.Module, msg_decoder: nn.Module, img_transform,
           key: torch.Tensor, metrics: Dict, start_iter: int, params: argparse.Namespace):
     header = 'Train'
     metric_logger = utils.MetricLogger()
@@ -354,6 +366,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # decode latents with original and fine-tuned decoder
         x0 = G0(z)  # b z 1 1 -> b c h w
         x_w = G(z)  # b z 1 1 -> b c h w
+        validity_w = D(x_w) if critic_loss is not None else 0  # b z h w -> b 1
 
         # simulated attacks
         x_r = attack_layer(x_w, x0) if attack_layer is not None else x_w
@@ -363,8 +376,10 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
         # compute loss
         loss_w = message_loss(m_hat, m)
         loss_i = image_loss(x_w, x0)
+        loss_c = critic_loss(validity_w, torch.ones((params.batch_size,), device=params.device)) \
+            if critic_loss is not None else 0
         loss_d = distillation_loss(x_w, x0) if distillation_loss is not None else 0
-        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_d * loss_d
+        loss = params.lambda_w * loss_w + params.lambda_i * loss_i + params.lambda_c * loss_c + params.lambda_d * loss_d
 
         # optim step
         loss.backward()
@@ -380,6 +395,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss: Callable, image_loss: 
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
+            'loss_c': itemize(loss_c),
             'loss_d': itemize(loss_d),
             'bit_acc': torch.mean(bit_accs).item(),
             'word_acc': torch.mean(word_accs.float()).item(),

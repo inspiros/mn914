@@ -17,7 +17,7 @@ from hidden.ops import attacks as hidden_attacks, metrics as hidden_metrics
 from hidden.models.attack_layers import HiddenAttackLayer
 from stable_signature import utils
 from stable_signature.models import hidden_utils
-from stable_signature.models import r3gan
+from stable_signature.models import dcgan
 
 
 def parse_args(verbose: bool = True) -> argparse.Namespace:
@@ -41,6 +41,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g.add_argument('--clf_ckpt', type=str, default=None,
                    help='Path to the classifier checkpoint for computing distillation loss')
     g.add_argument('--num_bits', type=int, default=16, help='Number of bits in the watermark')
+    g.add_argument('--z_dim', type=int, default=100, help='Dimension of the latent vector')
     g.add_argument('--decoder_depth', type=int, default=8,
                    help='Depth of the decoder in the watermarking model')
     g.add_argument('--decoder_channels', type=int, default=64,
@@ -73,6 +74,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Training parameters')
     g.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
     g.add_argument('--img_size', type=int, default=256, help='Resize images to this size')
+    g.add_argument('--img_channels', type=int, default=3, help='Number of image channels.')
 
     g.add_argument('--loss_c', type=str, default='bce',
                    help='Type of loss for the critic loss. Can be bce')
@@ -152,11 +154,12 @@ def main():
     os.makedirs(params.imgs_dir, exist_ok=True)
 
     # Loads LDM auto-encoder models
-    print(f'>>> Building Generator and Discriminator...')
-    G0, D0 = r3gan.get_both(params.generator_ckpt)
-    G0.to(params.device)
-    D0.to(params.device)
+    print(f'>>> Building Generator...')
+    G0 = dcgan.Generator(params.img_channels, params.z_dim).to(params.device)
+    G0.load_state_dict(torch.load(params.generator_ckpt, weights_only=False, map_location=params.device))
     G0.eval()
+    D0 = dcgan.Discriminator(params.img_channels).to(params.device)
+    D0.load_state_dict(torch.load(params.discriminator_ckpt, weights_only=False, map_location=params.device))
     D0.eval()
 
     # Loads attack layer
@@ -184,7 +187,8 @@ def main():
     msg_decoder = hidden_utils.get_hidden_decoder(params.decoder,
                                                   num_bits=params.num_bits,
                                                   num_blocks=params.decoder_depth,
-                                                  channels=params.decoder_channels).to(params.device)
+                                                  channels=params.decoder_channels,
+                                                  in_channels=params.img_channels).to(params.device)
     msg_decoder.load_state_dict(hidden_utils.get_hidden_decoder_ckpt(params.decoder_path))
     # TODO: add whitening?
     msg_decoder.eval()
@@ -234,9 +238,10 @@ def main():
         metrics.update({
             'ms_ssim': hidden_metrics.MS_SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
         })
-    metrics.update({
-        'lpips': hidden_metrics.LPIPS(net='alex').to(params.device),
-    })
+    if params.img_channels == 3:
+        metrics.update({
+            'lpips': hidden_metrics.LPIPS(net='alex').to(params.device),
+        })
 
     for ii_key in range(params.num_keys):
         # Creating key
@@ -302,12 +307,10 @@ def train(G_optim: torch.optim.Optimizer, D_optim: torch.optim.Optimizer, messag
                                       params.log_freq, header):
         utils.adjust_learning_rate(G_optim, it, params.steps, params.warmup_steps, base_lr)
         # random latent vector
-        z = torch.randn(params.batch_size, G.z_dim, device=params.device)  # b z
-        label = torch.nn.functional.one_hot(
-            torch.randint(0, G.c_dim, (params.batch_size,), device=params.device), num_classes=G.c_dim).float()
+        z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device)  # b z 1 1
         # decode latents with original and fine-tuned decoder
-        x_w = G(z, label).float()  # b z -> b c h w
-        validity_w = D(x_w, label).float()
+        x_w = G(z)  # b z 1 1 -> b c h w
+        validity_w = D(x_w) if critic_loss is not None else 0  # b z h w -> b 1
 
         # simulated attacks
         x_r = attack_layer(x_w, None) if attack_layer is not None else x_w
@@ -366,12 +369,9 @@ def val(G: nn.Module, msg_decoder: nn.Module, img_transform,
     generator = torch.Generator(device=params.device).manual_seed(params.eval_seed)
     for it in metric_logger.log_every(range(1, params.eval_steps + 1), params.log_freq, header):
         # random latent vector
-        z = torch.randn(params.batch_size, G.z_dim, device=params.device, generator=generator)  # b z
-        label = torch.nn.functional.one_hot(
-            torch.randint(0, G.c_dim, (params.batch_size,), device=params.device, generator=generator),
-            num_classes=G.c_dim).float()
+        z = torch.randn(params.batch_size, params.z_dim, 1, 1, device=params.device, generator=generator)  # b z 1 1
         # decode latents with original and fine-tuned decoder
-        x_w = G(z, label).float()  # b z -> b c h w
+        x_w = G(z)  # b z 1 1 -> b c h w
 
         log_stats = {}
         # log_stats = {

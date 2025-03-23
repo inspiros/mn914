@@ -143,11 +143,9 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     # Print the arguments
     if verbose:
-        print('__git__:{}'.format(utils.get_sha()))
-        print('__log__:{}'.format(json.dumps(vars(params))))
+        print(params)
 
     params.device = torch.device(params.device) if torch.cuda.is_available() else torch.device('cpu')
-
     return params
 
 
@@ -270,20 +268,16 @@ def main():
     # attacks
     eval_attacks = {
         'none': hidden_attacks.Identity(),
-        'crop_03': hidden_attacks.CenterCrop(0.3),
+        'crop_08': hidden_attacks.CenterCrop(0.8),
         'crop_05': hidden_attacks.CenterCrop(0.5),
+        'resize_08': hidden_attacks.Resize2(0.8),
+        'resize_05': hidden_attacks.Resize2(0.5),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
-        'resize_03': hidden_attacks.Resize(0.3),
-        'resize_07': hidden_attacks.Resize(0.7),
         'brightness_1p5': hidden_attacks.AdjustBrightness(
             1.5, mean=params.data_mean, std=params.data_std).to(params.device),
-        'brightness_2': hidden_attacks.AdjustBrightness(
-            2, mean=params.data_mean, std=params.data_std).to(params.device),
-        'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=0.5,
-                                            mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_90': hidden_attacks.JPEGCompress(
-            90, mean=params.data_mean, std=params.data_std).to(params.device),
+        'blur': hidden_attacks.GaussianBlur(
+            kernel_size=5, sigma=0.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'jpeg_80': hidden_attacks.JPEGCompress(
             80, mean=params.data_mean, std=params.data_std).to(params.device),
     }
@@ -370,7 +364,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss, image_loss, critic_los
         # decode latents with original and fine-tuned decoder
         x0 = G0(z, label).float()  # b z -> b c h w
         x_w = G(z, label).float()  # b z -> b c h w
-        validity_w = D(x_w, label).float() if critic_loss is not None else 0  # b z -> b 1
+        validity_w = D(x_w, label).float() if critic_loss is not None else 0  # b z h w -> b 1
 
         # simulated attacks
         x_r = attack_layer(x_w, x0) if attack_layer is not None else x_w
@@ -399,6 +393,7 @@ def train(optimizer: torch.optim.Optimizer, message_loss, image_loss, critic_los
             'loss': itemize(loss),
             'loss_w': itemize(loss_w),
             'loss_i': itemize(loss_i),
+            'loss_c': itemize(loss_c),
             'loss_d': itemize(loss_d),
             'bit_acc': torch.mean(bit_accs).item(),
             'word_acc': torch.mean(word_accs.float()).item(),

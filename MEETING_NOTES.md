@@ -1,6 +1,6 @@
 ## Meeting Notes
 
-### 1. Setup
+### Setup
 
 These commands will clone the repository, install libraries and download pre-trained weights:
 
@@ -11,9 +11,11 @@ pip install -r requirements.txt
 python tools/download_weights.py
 ```
 
-### 2. Run
+### Run
 
-#### 2.0 HiDDeN on MNIST
+#### HiDDeN
+
+###### HiDDeN on MNIST
 
 ```cmd
 python main.py mnist \
@@ -27,15 +29,7 @@ python main.py mnist \
     --lambda_w 1 --lambda_i 0.02 --lambda_p 0.8
 ```
 
-#### 2.1. HiDDeN using U-Net-based watermark encoder
-
-First, change working directory to [`hidden`](hidden):
-
-```cmd
-cd hidden
-```
-
-Then run:
+###### U-Net on COCO
 
 ```cmd
 python main.py cifar10_unet \
@@ -51,19 +45,52 @@ python main.py cifar10_unet \
     --lambda_w 1 --lambda_i 0.02 --lambda_p 0.5
 ```
 
-#### 2.2. Finetune GAN on CIFAR10 with Different Configurations
+#### Stable Signature
 
-First, change working directory to [`stable_signature`](stable_signature):
+###### on MNIST
+All experiments use DCGAN.
 
+- Baseline
 ```cmd
-cd stale_signature
+python finetune_dcgan.py mnist_baseline --num_keys 1 `
+    --num_bits 32 --img_size 28 --img_channels 1 --batch_size 32 `
+    --steps 8000 --eval_steps 400 --eval_freq 800 `
+    --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
+    --decoder_path ../ckpts/hidden_mnist.pth `
+    --attack_layer none `
+    --loss_i watson-vgg --loss_w bce --loss_c none --loss_d none `
+    --lambda_i 1 --lambda_w 1 --lambda_c 0 --lambda_d 0
 ```
 
-From this week, we migrate to R3GAN instead of DCGAN.
-The watermark extractor used is the pretrained weights published by the authors.
+- With attack layer
+```cmd
+python finetune_dcgan.py mnist_attack --num_keys 1 `
+    --num_bits 32 --img_size 28 --img_channels 1 --batch_size 32 `
+    --steps 8000 --eval_steps 400 --eval_freq 800 `
+    --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
+    --decoder_path ../ckpts/hidden_mnist.pth `
+    --attack_layer hidden `
+    --loss_i watson-vgg --loss_w bce --loss_c none --loss_d none `
+    --lambda_i 1 --lambda_w 1 --lambda_c 0 --lambda_d 0
+```
 
-##### 2.2.1. Baseline
+- With discriminator
+```cmd
+python finetune_dcgan.py mnist_critic --num_keys 1 `
+    --num_bits 32 --img_size 28 --img_channels 1 --batch_size 32 `
+    --steps 8000 --eval_steps 400 --eval_freq 800 `
+    --generator_ckpt ../ckpts/dcgan_generator_mnist.pth `
+    --discriminator_ckpt ../ckpts/dcgan_discriminator_mnist.pth `
+    --decoder_path ../ckpts/hidden_mnist.pth `
+    --attack_layer hidden `
+    --loss_i watson-vgg --loss_w bce --loss_c bce --loss_d none `
+    --lambda_i 1 --lambda_w 1 --lambda_c 0.1 --lambda_d 0
+```
 
+###### on CIFAR-10
+All experiments use R3GAN (a conditional GAN).
+
+- Baseline
 ```cmd
 python finetune_r3gan.py r3gan_cifar10_baseline --num_keys 1 \
     --num_bits 48 --img_size 32 --batch_size 128 \
@@ -87,8 +114,7 @@ python finetune_r3gan_critic.py r3gan_cifar10_critic --num_keys 1 \
     --lambda_c 1 --lambda_w 0.6 --lambda_d 0
 ```
 
-##### 2.2.2. With attack layer
-
+- With attack layer
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
     --num_bits 48 --img_size 32 --batch_size 128 \
@@ -101,8 +127,7 @@ python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
     --lambda_i 1 --lambda_w 0.1 --lambda_d 0
 ```
 
-##### 2.2.3. With logit loss
-
+- With logit loss
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
     --num_bits 48 --img_size 32 --batch_size 128 \
@@ -115,8 +140,7 @@ python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
     --lambda_i 1 --lambda_w 0.1 --lambda_d 0.1
 ```
 
-##### 2.2.4. With both modifications
-
+- With both modifications
 ```cmd
 python finetune_r3gan.py r3gan_cifar101 --num_keys 1 \
     --num_bits 48 --img_size 32 --batch_size 128 \

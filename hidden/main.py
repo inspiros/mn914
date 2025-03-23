@@ -66,7 +66,7 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g = parser.add_argument_group('Training parameters')
     g.add_argument('--eval_freq', default=10, type=int)
-    g.add_argument('--saveckpt_freq', default=100, type=int)
+    g.add_argument('--saveckpt_freq', default=10, type=int)
     g.add_argument('--saveimg_freq', default=10, type=int)
     g.add_argument('--resume_from', default=None, type=str,
                    help='Checkpoint path to resume from.')
@@ -291,7 +291,7 @@ def main():
             params.img_size,
             p_flip=params.p_flip,
             p_drop=params.p_drop,
-            p_color_jitter=params.p_color_jitter,
+            p_color_jitter=params.p_color_jitter if params.img_channels == 3 else 0,
             p_crop=params.p_crop,
             p_resize=params.p_resize,
             p_blur=params.p_blur,
