@@ -274,8 +274,6 @@ def main():
     metrics = {
         'psnr': hidden_metrics.PSNR(mean=params.data_mean, std=params.data_std).to(params.device),
         'ssim': hidden_metrics.SSIM(mean=params.data_mean, std=params.data_std).to(params.device),
-        'dssim': hidden_metrics.DSSIM(
-            use_gpu='cuda' in params.device, colorspace='Lab' if params.img_channels == 1 else 'RGB').to(params.device),
     }
     if params.img_size >= 160:
         metrics.update({
