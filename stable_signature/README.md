@@ -36,7 +36,7 @@ We also proposed to use a modified scheme with the attack simulation layer:
 
 And an experimental scheme called "the adversarial scheme":
 <p align="center">
-<img src="../resources/gan_adversarial_pipeline.png" height="300"/>
+<img src="../resources/gan_adversarial_pipeline.png" height="200"/>
 </p>
 
 ## Usage

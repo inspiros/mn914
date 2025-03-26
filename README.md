@@ -56,11 +56,11 @@ We also included the commands to reproduce our experiments.
 
 #### Image Watermarking Pre-training
 
-See [hidden/README.md](hidden/README.md).
+See [`hidden/README.md`](hidden/README.md).
 
 #### GAN Fine-tuning
 
-See [stable_signature/README.md](stable_signature/README.md).
+See [`stable_signature/README.md`](stable_signature/README.md).
 
 ## Acknowledgements
 
