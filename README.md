@@ -3,8 +3,8 @@ MN914 Joint Project - GAN's Signature
 
 This repo is intended for storing the code for the joint project in our **M2 - Multimedia Networking** program.
 
-The objective of the project is to apply Stable Signature for GAN,
-and also propose a watermark encoder architecture that tries to enforce a _semantic_-level signature in
+The objective of the project is to apply [Stable Signature](https://ai.meta.com/blog/stable-signature-watermarking-generative-ai/)
+for GAN, and we also propose a watermark encoder architecture that tries to enforce a _semantic_-level signature in
 the latter fine-tuned GAN models.
 
 <p align="center">
