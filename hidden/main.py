@@ -140,7 +140,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g = parser.add_argument_group('Distributed training parameters')
     g.add_argument('--local_rank', default=-1, type=int)
-    g.add_argument('--master_port', default=-1, type=int)
     g.add_argument('--dist', type=utils.bool_inst, default=False,
                    help='Enabling distributed training')
     g.add_argument('--device', type=str, default='cuda:0', help='Device')
@@ -342,17 +341,14 @@ def main():
     # attacks
     eval_attacks = {
         'none': hidden_attacks.Identity(),
-        'crop_03': hidden_attacks.CenterCrop(0.3),
         'crop_05': hidden_attacks.CenterCrop(0.5),
-        'resize_03': hidden_attacks.Resize(0.3),
+        'crop_08': hidden_attacks.CenterCrop(0.8),
         'resize_05': hidden_attacks.Resize(0.5),
+        'resize_08': hidden_attacks.Resize(0.8),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
-        # 'brightness_2': hidden_attacks.AdjustBrightness(2, mean=params.data_mean, std=params.data_std).to(params.device),
         'blur': hidden_attacks.GaussianBlur(kernel_size=5, sigma=0.5,
                                             mean=params.data_mean, std=params.data_std).to(params.device),
-        'jpeg_90': hidden_attacks.JPEGCompress(90,
-                                               mean=params.data_mean, std=params.data_std).to(params.device),
         'jpeg_80': hidden_attacks.JPEGCompress(80,
                                                mean=params.data_mean, std=params.data_std).to(params.device),
     }

@@ -30,6 +30,8 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
 
     g = parser.add_argument_group('Data parameters')
     g.add_argument('exp', type=str, nargs='?', default=None, help='Experiment name')
+    g.add_argument('--output_dir', type=str, default='outputs',
+                   help='Output directory for logs and images (Default: output)')
     g.add_argument('--data_mean', type=utils.tuple_inst(float), default=None)
     g.add_argument('--data_std', type=utils.tuple_inst(float), default=None)
 
@@ -124,8 +126,6 @@ def parse_args(verbose: bool = True) -> argparse.Namespace:
     g = parser.add_argument_group('Experiments parameters')
     g.add_argument('--num_keys', type=int, default=1,
                    help='Number of fine-tuned checkpoints to generate')
-    g.add_argument('--output_dir', type=str, default='outputs',
-                   help='Output directory for logs and images (Default: output)')
     g.add_argument('--seed', type=int, default=0)
 
     params = parser.parse_args()
@@ -171,7 +171,7 @@ def main():
     os.makedirs(params.imgs_dir, exist_ok=True)
 
     # Loads LDM auto-encoder models
-    print(f'>>> Building Generator...')
+    print(f'>>> Building Generator and Discriminator...')
     G0 = dcgan.Generator(params.img_channels, params.z_dim).to(params.device)
     G0.load_state_dict(torch.load(params.generator_ckpt, weights_only=False, map_location=params.device))
     G0.eval()
@@ -221,7 +221,6 @@ def main():
 
     # Create losses
     print(f'>>> Creating Losses...')
-    print(f'Losses: {params.loss_w}, {params.loss_i}, and {params.loss_d}...')
     if params.loss_w == 'mse':
         message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
@@ -277,8 +276,6 @@ def main():
         'resize_05': hidden_attacks.Resize2(0.5),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
-        'brightness_1p5': hidden_attacks.AdjustBrightness(
-            1.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'blur': hidden_attacks.GaussianBlur(
             kernel_size=5, sigma=0.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'jpeg_80': hidden_attacks.JPEGCompress(

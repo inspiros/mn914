@@ -177,7 +177,7 @@ def main():
     os.makedirs(params.imgs_dir, exist_ok=True)
 
     # Loads LDM auto-encoder models
-    print(f'>>> Building Generator...')
+    print(f'>>> Building Generator and Discriminator...')
     G0 = dcgan.Generator(params.img_channels, params.z_dim).to(params.device)
     G0.load_state_dict(torch.load(params.generator_ckpt, weights_only=False, map_location=params.device))
     G0.eval()
@@ -224,7 +224,6 @@ def main():
 
     # Create losses
     print(f'>>> Creating Losses...')
-    print(f'Losses: {params.loss_w} and {params.loss_c}...')
     if params.loss_w == 'mse':
         message_loss = lambda m_hat, m, temp=10.0: torch.mean((m_hat * temp - (2 * m - 1)) ** 2)  # b k - b k
     elif params.loss_w == 'bce':
@@ -244,8 +243,6 @@ def main():
         'resize_05': hidden_attacks.Resize2(0.5),
         'rot_25': hidden_attacks.Rotate(25),
         'rot_90': hidden_attacks.Rotate(90),
-        'brightness_1p5': hidden_attacks.AdjustBrightness(
-            1.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'blur': hidden_attacks.GaussianBlur(
             kernel_size=5, sigma=0.5, mean=params.data_mean, std=params.data_std).to(params.device),
         'jpeg_80': hidden_attacks.JPEGCompress(
@@ -352,10 +349,8 @@ def train(train_loader, optim_g: torch.optim.Optimizer, optim_d: torch.optim.Opt
             # dragan
             if params.lambda_dragan:
                 alpha = torch.rand(params.batch_size, 1, 1, 1, device=params.device).expand_as(x_real)
-                x_hat = torch.tensor(
-                    alpha * x_real.data +
-                    (1 - alpha) * (x_real.data + 0.5 * x_real.data.std() * torch.rand_like(x_real)),
-                    requires_grad=True)
+                x_hat = alpha * x_real + (1 - alpha) * (x_real + 0.5 * x_real.std() * torch.rand_like(x_real))
+                x_hat = x_hat.clone().detach().requires_grad_(True)
                 perm_validity = D(x_hat)
                 gradients = torch.autograd.grad(
                     perm_validity, x_hat, grad_outputs=torch.ones_like(perm_validity),
